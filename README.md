@@ -1,6 +1,6 @@
 # Mi GPS
 
-App personal de rutas con tráfico en tiempo real (TomTom + Leaflet), como web app instalable. Gratis, sin tarjeta.
+App personal de rutas y navegación paso a paso con voz, con tráfico en tiempo real (TomTom + Leaflet), como web app instalable. Gratis, sin tarjeta.
 
 ## Clave de TomTom
 1. Creá una cuenta gratis en https://developer.tomtom.com (no pide tarjeta).

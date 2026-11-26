@@ -45,9 +45,23 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .route .eta{font-weight:700;text-align:right;white-space:nowrap}
 .route .sub{color:var(--mute);font-size:14px;grid-column:1/-1}
 .tag{display:inline-block;font-size:13px;font-weight:700;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:middle;color:#000}
-.go{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.go a{display:grid;place-items:center;min-height:48px;border-radius:12px;font-weight:800;text-decoration:none;color:#fff}
-.go .waze{background:#33ccff;color:#04263a}.go .gm{background:var(--green)}
+.startNav{width:100%;margin-top:10px;min-height:54px;font-size:18px;font-weight:800}
+body.nav .sheet,body.nav #btnCfg{display:none}
+.navTop,.navBot{position:fixed;left:10px;right:10px;z-index:6;display:none}
+body.nav .navTop,body.nav .navBot{display:flex}
+.navTop{top:calc(10px + env(safe-area-inset-top));gap:14px;align-items:center;background:var(--green);color:#fff;border-radius:18px;padding:14px 16px;box-shadow:0 6px 20px #0008;right:70px}
+.navTop .arrow{flex:none;width:64px;height:64px;display:grid;place-items:center}
+.navTop .arrow svg{width:56px;height:56px;transition:transform .3s}
+.navTop .dist{font-size:34px;font-weight:800;line-height:1}
+.navTop .msg{font-size:17px;font-weight:700;line-height:1.25;margin-top:4px}
+.navTop .then{font-size:13px;opacity:.85;margin-top:6px}
+.navBot{bottom:calc(10px + env(safe-area-inset-bottom));align-items:center;gap:12px;background:var(--panel);border-radius:18px;padding:12px 14px;box-shadow:0 -4px 20px #0008}
+.navBot .big{font-size:26px;font-weight:800;color:var(--green);line-height:1}
+.navBot .small{color:var(--mute);font-size:14px}
+.navBot .grow{flex:1}
+.navBot .btn{flex:none}
+.navBot .exit{background:var(--red);color:#fff}
+@media(max-width:600px){.navTop .dist{font-size:28px}.navTop .arrow{width:52px;height:52px}.navTop .arrow svg{width:46px;height:46px}}
 dialog{border:0;border-radius:18px;background:var(--panel);color:var(--ink);width:min(520px,94vw);padding:18px;max-height:90vh}
 dialog::backdrop{background:#000a}
 dialog h2{margin:0 0 6px;font-size:22px}
@@ -79,11 +93,26 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   <div class="chips" id="chips"></div>
   <div class="status" id="status">Buscando tu ubicación…</div>
   <div class="routes" id="routes"></div>
-  <div class="go hidden" id="go">
-    <a class="waze" id="goWaze" href="#" target="_blank" rel="noopener">Navegar en Waze</a>
-    <a class="gm" id="goGm" href="#" target="_blank" rel="noopener">Google Maps</a>
-  </div>
+  <button class="btn pri startNav hidden" id="go" type="button">▶ Iniciar navegación</button>
 </section>
+
+<div class="navTop" id="navTop" aria-live="polite">
+  <div class="arrow"><svg id="navArrow" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M5 11l7-7 7 7"/></svg></div>
+  <div>
+    <div class="dist" id="navDist">—</div>
+    <div class="msg" id="navMsg">Calculando…</div>
+    <div class="then" id="navThen"></div>
+  </div>
+</div>
+<div class="navBot" id="navBot">
+  <div class="grow">
+    <div class="big" id="navEta">—</div>
+    <div class="small" id="navRest">—</div>
+  </div>
+  <button class="btn" id="navVoice" type="button" aria-label="Silenciar voz">🔊</button>
+  <button class="btn" id="navSim" type="button">Simular</button>
+  <button class="btn exit" id="navExit" type="button">Salir</button>
+</div>
 
 <dialog id="cfg">
   <h2>Ajustes</h2>
@@ -180,9 +209,11 @@ function startGps(){
   if (!navigator.geolocation){ setStatus('Este navegador no da ubicación.'); return; }
   let first = true;
   navigator.geolocation.watchPosition(p => {
+    if (nav && nav.sim) return;
     me = {lat:p.coords.latitude, lng:p.coords.longitude};
     if (!meMarker) meMarker = L.circleMarker([me.lat, me.lng], {radius:9, color:'#fff', weight:3, fillColor:'#0a5cff', fillOpacity:1}).addTo(map);
     else meMarker.setLatLng([me.lat, me.lng]);
+    if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ map.setView([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
   {enableHighAccuracy:true, maximumAge:5000});
@@ -199,28 +230,39 @@ async function geocode(q){
   return {lat:hit.position.lat, lng:hit.position.lon};
 }
 
+async function fetchRoutes(from, to, alts){
+  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&language=es-ES`;
+  const r = await fetch(u); const data = await r.json();
+  if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
+  if (!data.routes?.length) throw new Error('no encontré ruta a ese destino');
+  return data.routes.map(x => {
+    const path = x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]));
+    const cum = [0];
+    for (let i = 1; i < path.length; i++) cum.push(cum[i-1] + hav(path[i-1], path[i]));
+    return {
+      dur:x.summary.travelTimeInSeconds,
+      delay:x.summary.trafficDelayInSeconds || 0,
+      dist:x.summary.lengthInMeters,
+      path, cum,
+      instr:(x.guidance?.instructions || []).map(g => ({
+        off:g.routeOffsetInMeters, msg:g.message || '', man:g.maneuver || '', pt:[g.point.latitude, g.point.longitude]
+      }))
+    };
+  }).sort((a, b) => a.dur - b.dur);
+}
+
 async function route(dest){
   if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
   lastDest = dest;
   setStatus('Calculando con el tráfico de ahora…');
   try{
-    const to = await geocode(dest);
-    destPos = to;
-    const u = `${T}/routing/1/calculateRoute/${me.lat},${me.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=2&computeTravelTimeFor=all&language=es-ES`;
-    const r = await fetch(u); const data = await r.json();
-    if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
-    if (!data.routes?.length){ setStatus('No encontré ruta a ese destino.'); clearRoutes(); return; }
-    routes = data.routes.map(x => ({
-      dur:x.summary.travelTimeInSeconds,
-      delay:x.summary.trafficDelayInSeconds || 0,
-      dist:x.summary.lengthInMeters,
-      path:x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))
-    })).sort((a, b) => a.dur - b.dur);
+    destPos = await geocode(dest);
+    routes = await fetchRoutes(me, destPos, 2);
     sel = 0;
     draw();
     setStatus(`Actualizado ${fmtHora(new Date())} · se recalcula cada 2 min`);
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => lastDest && route(lastDest), 120000);
+    refreshTimer = setInterval(() => { if (lastDest && !nav) route(lastDest); }, 120000);
   }catch(e){
     setStatus('No pude calcular la ruta: ' + e.message);
   }
@@ -239,6 +281,7 @@ function draw(){
     l.on('click', () => { sel = i; draw(); });
     lines.push(l);
   });
+  if (nav) return;
   map.fitBounds(L.latLngBounds(routes[sel].path), {paddingTopLeft:[30, 100], paddingBottomRight:[70, Math.round(innerHeight * .45)]});
 
   $('#routes').innerHTML = routes.map((r, i) => {
@@ -253,12 +296,172 @@ function draw(){
     </button>`;
   }).join('');
 
-  const q = encodeURIComponent(lastDest);
-  $('#goWaze').href = destPos ? `https://waze.com/ul?ll=${destPos.lat},${destPos.lng}&navigate=yes` : `https://waze.com/ul?q=${q}&navigate=yes`;
-  $('#goGm').href = `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=driving`;
   $('#go').classList.remove('hidden');
 }
 $('#routes').onclick = e => { const b = e.target.closest('.route'); if (b){ sel = +b.dataset.i; draw(); } };
+
+/* ---------- Navegación paso a paso ---------- */
+let nav = null, voiceOn = true, wakeLock = null;
+
+function hav(a, b){
+  const R = 6371000, k = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * k, dLng = (b[1] - a[1]) * k;
+  const s = Math.sin(dLat/2) ** 2 + Math.cos(a[0]*k) * Math.cos(b[0]*k) * Math.sin(dLng/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+const ANG = {TURN_LEFT:-90, TURN_RIGHT:90, SHARP_LEFT:-135, SHARP_RIGHT:135, BEAR_LEFT:-45, BEAR_RIGHT:45,
+  KEEP_LEFT:-30, KEEP_RIGHT:30, MAKE_UTURN:-180, TRY_MAKING_UTURN:-180, ENTER_MOTORWAY:30, ENTER_FREEWAY:30,
+  ENTER_HIGHWAY:30, TAKE_EXIT:30, MOTORWAY_EXIT_LEFT:-30, MOTORWAY_EXIT_RIGHT:30, ROUNDABOUT_LEFT:-90,
+  ROUNDABOUT_RIGHT:90, ROUNDABOUT_BACK:-180, SWITCH_PARALLEL_ROAD:30, SWITCH_MAIN_ROAD:-30};
+const fmtDist = d => d >= 1000 ? `${(d/1000).toFixed(1).replace('.', ',')} km` : `${Math.max(0, Math.round(d/10)*10)} m`;
+const sayDist = d => d >= 1000 ? `${(d/1000).toFixed(1).replace('.', ',')} kilómetros` : `${Math.round(d/50)*50} metros`;
+
+function say(t){
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = 'es-AR';
+    const v = speechSynthesis.getVoices().find(v => v.lang.startsWith('es'));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  }catch{}
+}
+
+function locate(r, p, from){
+  const k = Math.PI / 180, kx = 111320 * Math.cos(p[0]*k), ky = 110540;
+  const a0 = Math.max(0, from - 10), a1 = Math.min(r.path.length - 2, from + 200);
+  let best = {d:Infinity, i:a0, t:0};
+  for (let i = a0; i <= a1; i++){
+    const A = r.path[i], B = r.path[i+1];
+    const ax = (A[1]-p[1])*kx, ay = (A[0]-p[0])*ky, dx = (B[1]-A[1])*kx, dy = (B[0]-A[0])*ky;
+    const L2 = dx*dx + dy*dy;
+    const t = L2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / L2)) : 0;
+    const d = Math.hypot(ax + t*dx, ay + t*dy);
+    if (d < best.d) best = {d, i, t};
+  }
+  if (best.d === Infinity) return {i:0, along:0, off:0};
+  return {i:best.i, along:r.cum[best.i] + best.t * (r.cum[best.i+1] - r.cum[best.i]), off:best.d};
+}
+
+function posAt(r, s){
+  let i = 0;
+  while (i < r.cum.length - 2 && r.cum[i+1] < s) i++;
+  const seg = r.cum[i+1] - r.cum[i] || 1, t = Math.min(1, Math.max(0, (s - r.cum[i]) / seg));
+  const A = r.path[i], B = r.path[i+1] || A;
+  return {lat:A[0] + (B[0]-A[0])*t, lng:A[1] + (B[1]-A[1])*t};
+}
+
+function navUpdate(p){
+  if (!nav) return;
+  const r = nav.r, pt = [p.lat, p.lng];
+  const loc = locate(r, pt, nav.idx);
+  if (loc.off > 50){ if (++nav.offCount >= 3 && !nav.rerouting && !nav.sim) reroute(p); }
+  else nav.offCount = 0;
+  nav.idx = loc.i;
+
+  const total = r.cum[r.cum.length - 1] || 1, scale = r.dist / total;
+  const done = loc.along * scale, rest = Math.max(0, r.dist - done);
+
+  if (rest < 25 && !nav.arrived){
+    nav.arrived = true;
+    $('#navDist').textContent = '';
+    $('#navMsg').textContent = 'Llegaste a destino';
+    $('#navThen').textContent = '';
+    say('Llegaste a destino');
+    setTimeout(stopNav, 4000);
+    return;
+  }
+
+  let k = r.instr.findIndex(g => g.off > done + 5);
+  if (k < 0) k = r.instr.length - 1;
+  const g = r.instr[k] || {off:r.dist, msg:'Seguí por la ruta', man:''};
+  const dNext = Math.max(0, g.off - done);
+  $('#navDist').textContent = fmtDist(dNext);
+  $('#navMsg').textContent = g.msg;
+  const n = r.instr[k+1];
+  $('#navThen').textContent = n && n.off - g.off < 250 ? 'Después: ' + n.msg : '';
+  $('#navArrow').style.transform = `rotate(${ANG[g.man] || 0}deg)`;
+
+  const secs = r.dur * rest / r.dist;
+  $('#navEta').textContent = 'Llegás ' + fmtHora(new Date(Date.now() + secs * 1000));
+  $('#navRest').textContent = `${fmtMin(secs)} · ${fmtKm(Math.round(rest))}`;
+
+  const st = nav.spoken[k] || 0;
+  if (dNext <= 450 && dNext > 120 && st < 1){ say(`En ${sayDist(dNext)}, ${g.msg}`); nav.spoken[k] = 1; }
+  else if (dNext <= 45 && st < 2){ say(g.msg); nav.spoken[k] = 2; }
+
+  meMarker && meMarker.setLatLng(pt);
+  map.setView(pt, 17, {animate:true});
+}
+
+function setNavRoute(r){
+  nav.r = r; nav.idx = 0; nav.spoken = {}; nav.offCount = 0;
+  routes = [r]; sel = 0; draw();
+}
+
+async function reroute(p){
+  nav.rerouting = true;
+  $('#navMsg').textContent = 'Recalculando…';
+  say('Recalculando');
+  try{ const rs = await fetchRoutes(p, destPos, 0); if (nav) setNavRoute(rs[0]); }catch{}
+  if (nav){ nav.rerouting = false; nav.offCount = 0; }
+}
+
+async function startNav(){
+  if (!routes[sel] || !me) return;
+  nav = {r:routes[sel], idx:0, spoken:{}, offCount:0, sim:null, rerouting:false, arrived:false};
+  routes = [nav.r]; sel = 0;
+  document.body.classList.add('nav');
+  draw();
+  const first = nav.r.instr.find(g => g.off > 5);
+  say('Iniciando navegación.' + (first ? ' ' + first.msg : ''));
+  navUpdate(me);
+  nav.timer = setInterval(async () => {
+    if (!nav || nav.sim || nav.rerouting || !me) return;
+    try{ const rs = await fetchRoutes(me, destPos, 0); if (nav && !nav.sim){ const sp = nav.spoken; setNavRoute(rs[0]); nav.spoken = sp; navUpdate(me); } }catch{}
+  }, 180000);
+  try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{}
+}
+
+function stopNav(){
+  if (!nav) return;
+  clearInterval(nav.timer); clearInterval(nav.sim);
+  nav = null;
+  document.body.classList.remove('nav');
+  $('#navSim').textContent = 'Simular';
+  try{ speechSynthesis.cancel(); }catch{}
+  try{ wakeLock && wakeLock.release(); }catch{}
+  wakeLock = null;
+  clearRoutes();
+  setStatus('Navegación terminada. Elegí otro destino.');
+  if (me){ meMarker.setLatLng([me.lat, me.lng]); map.setView([me.lat, me.lng], 15); }
+}
+
+function toggleSim(){
+  if (!nav) return;
+  if (nav.sim){ clearInterval(nav.sim); nav.sim = null; $('#navSim').textContent = 'Simular'; return; }
+  let s = nav.r.cum[nav.idx] || 0;
+  $('#navSim').textContent = 'Parar';
+  nav.sim = setInterval(() => {
+    if (!nav) return;
+    s += 12;
+    const total = nav.r.cum[nav.r.cum.length - 1];
+    navUpdate(posAt(nav.r, Math.min(s, total)));
+  }, 600);
+}
+
+$('#go').onclick = startNav;
+$('#navExit').onclick = stopNav;
+$('#navSim').onclick = toggleSim;
+$('#navVoice').onclick = () => {
+  voiceOn = !voiceOn;
+  $('#navVoice').textContent = voiceOn ? '🔊' : '🔇';
+  if (!voiceOn) try{ speechSynthesis.cancel(); }catch{}
+};
+document.addEventListener('visibilitychange', async () => {
+  if (nav && document.visibilityState === 'visible'){ try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{} }
+});
 
 /* ---------- Arranque ---------- */
 let destPos = null;
