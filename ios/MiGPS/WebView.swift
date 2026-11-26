@@ -16,7 +16,7 @@ struct WebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
-        webView.backgroundColor = UIColor(red: 14/255, green: 17/255, blue: 22/255, alpha: 1)
+        webView.backgroundColor = UIColor(red: 241/255, green: 240/255, blue: 236/255, alpha: 1)
         webView.scrollView.backgroundColor = webView.backgroundColor
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.bounces = false

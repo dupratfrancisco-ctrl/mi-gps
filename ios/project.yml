@@ -30,7 +30,7 @@ targets:
         NSLocationWhenInUseUsageDescription: Mi GPS usa tu ubicación para mostrarte en el mapa y guiarte.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        UIUserInterfaceStyle: Dark
+        UIUserInterfaceStyle: Light
         UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
     settings:
