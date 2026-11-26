@@ -531,49 +531,23 @@ async function geocode(q){
 }
 
 /* ---------- Cambios de mano recientes que el mapa todavía puede no tener ----------
-   TramBus T1 (CABA, sep–oct 2026). Sentido permitido: de "desde" hacia "hacia".
+   TramBus T1 (CABA, sep–oct 2026).
    Fuentes: Gobierno de la Ciudad y prensa (Perfil, iProfesional, C5N). */
-const ONEWAY = [
-  {calle:'Avenida Honorio Pueyrredón', desde:'Avenida Ángel Gallardo', hacia:'Neuquén'},
-  {calle:'Avenida Acoyte', desde:'Neuquén', hacia:'Díaz Vélez', norte:true},
-  {calle:'Avenida La Plata', desde:'Quito', hacia:'Avenida Rivadavia'},
-  {calle:'José Mármol', desde:'Avenida Rivadavia', hacia:'Hipólito Yrigoyen'},
-  {calle:'Quito', desde:'Avenida La Plata', hacia:'Muñiz'},
-  {calle:'Pringles', desde:'Lezica', hacia:'Avenida Rivadavia'},
-  {calle:'Zañartú', desde:'Avenida La Plata', hacia:'Senillosa'},
-  {calle:'Gibson', desde:'Avenida La Plata', hacia:'Castro'},
-  {calle:'Juan Bautista Ambrosetti', desde:'Arturo Jauretche', hacia:'Avenida Rivadavia'},
-  {calle:'Balcarce', desde:'Yerbal', hacia:'Avenida Rivadavia'}
+// Coordenadas de cada esquina tomadas de OpenStreetMap. a → b es el único sentido permitido.
+const ONEWAY_SEGS = [
+  {calle:'Av. Honorio Pueyrredón (Á. Gallardo → Neuquén)', a:[-34.607335,-58.445604], b:[-34.615927,-58.440422]},
+  {calle:'Av. Acoyte (Neuquén → Díaz Vélez)',             a:[-34.615894,-58.43759],  b:[-34.608787,-58.440103]},
+  {calle:'Av. La Plata (Quito → Rivadavia)',              a:[-34.617186,-58.428772], b:[-34.615111,-58.429259]},
+  {calle:'José Mármol (Rivadavia → H. Yrigoyen)',         a:[-34.613724,-58.426147], b:[-34.614882,-58.425965]},
+  {calle:'Quito (La Plata → Muñiz)',                      a:[-34.617186,-58.428772], b:[-34.617098,-58.427361]},
+  {calle:'Pringles (Lezica → Rivadavia)',                 a:[-34.612664,-58.426839], b:[-34.613724,-58.426147]},
+  {calle:'Zañartú (La Plata → Senillosa)',                a:[-34.638092,-58.424041], b:[-34.63832,-58.425453]},
+  {calle:'Gibson (La Plata → Castro)',                    a:[-34.63916,-58.423769],  b:[-34.638294,-58.418847]},
+  {calle:'J. B. Ambrosetti (Jauretche → Rivadavia)',      a:[-34.611278,-58.438077], b:[-34.617769,-58.435286]},
+  {calle:'Balcarce (Rivadavia → Yerbal)',                 a:[-34.617522,-58.434732], b:[-34.616416,-58.435469]}
 ];
-let onewaySegs = null, onewayLoading = null;
-async function crossPoint(a, b){
-  const q = `${a} & ${b}, Ciudad Autónoma de Buenos Aires`;
-  const d = await (await fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&limit=1&countrySet=AR&lat=-34.62&lon=-58.44`)).json();
-  const r = d.results?.[0];
-  return r ? [r.position.lat, r.position.lon] : null;
-}
-function loadOneway(){
-  if (onewaySegs) return Promise.resolve(onewaySegs);
-  if (onewayLoading) return onewayLoading;
-  onewayLoading = (async () => {
-    try{ const c = JSON.parse(localStorage.getItem('migps:oneway:v1') || 'null'); if (c){ onewaySegs = c; return c; } }catch{}
-    const segs = [];
-    for (const o of ONEWAY){
-      try{
-        let a = await crossPoint(o.calle, o.desde), b = await crossPoint(o.calle, o.hacia);
-        if (!a || !b) continue;
-        const len = hav(a, b);
-        if (len < 40 || len > 2500) continue;           // dato dudoso: lo ignoro
-        if (o.norte && b[0] < a[0]) [a, b] = [b, a];   // "sur → norte"
-        segs.push({calle:o.calle, a, b});
-      }catch{}
-    }
-    onewaySegs = segs;
-    if (segs.length) try{ localStorage.setItem('migps:oneway:v1', JSON.stringify(segs)); }catch{}
-    return segs;
-  })();
-  return onewayLoading;
-}
+let onewaySegs = ONEWAY_SEGS;
+function loadOneway(){ return Promise.resolve(onewaySegs); }
 // Devuelve puntos a mitad de cuadra donde la ruta va a contramano
 function wrongWay(path){
   const out = [];
