@@ -406,6 +406,7 @@ function startGps(){
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
     if (!nav){ setMe([me.lat, me.lng], myHeading); driveUpdate(); }
+    autoParkTick();
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
@@ -873,6 +874,7 @@ function navUpdate(p){
     $('#navMsg').textContent = 'Llegaste a destino';
     $('#navThen').textContent = '';
     say('Llegaste a destino');
+    if (travelMode === 'car' && !nav.sim) setTimeout(() => savePark(true), 1500);
     setTimeout(stopNav, 4000);
     return;
   }
@@ -1041,12 +1043,15 @@ function updateParkInfo(){
   const dist = me ? ' · a ' + fmtKm(Math.round(hav([me.lat, me.lng], [pk.lat, pk.lng]))) : '';
   $('#parkInfo').textContent = `Estacionado ${hace}${pk.addr ? ' · ' + pk.addr : ''}${dist}`;
 }
-async function savePark(){
-  if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
-  const pk = {lat:me.lat, lng:me.lng, t:Date.now(), addr:''};
+async function savePark(auto, at){
+  const pos = at || me;
+  if (!pos){ if (!auto) setStatus('Todavía no tengo tu ubicación.'); return; }
+  const old = getPark();
+  if (auto && old && hav([old.lat, old.lng], [pos.lat, pos.lng]) < 60) return;   // ya estaba guardado ahí
+  const pk = {lat:pos.lat, lng:pos.lng, t:Date.now(), addr:''};
   store.set('park', pk);
   drawPark();
-  setStatus('Listo, guardé dónde estacionaste.');
+  setStatus(auto ? 'Guardé automáticamente dónde estacionaste (P azul).' : 'Listo, guardé dónde estacionaste.');
   try{
     const d = await (await fetch(`${T}/search/2/reverseGeocode/${pk.lat},${pk.lng}.json?key=${encodeURIComponent(apiKey)}&radius=50`)).json();
     const a = d.addresses?.[0]?.address;
@@ -1068,6 +1073,34 @@ $('#parkGo').onclick = () => {
 };
 $('#parkDel').onclick = () => { store.set('park', null); drawPark(); setStatus('Listo, borré la ubicación del auto.'); };
 setInterval(updateParkInfo, 60000);
+
+/* Detección automática: si veníamos manejando y el auto se queda quieto, o la app se cierra
+   poco después de manejar, guardo el lugar solo. */
+let lastDriveT = 0, stillSince = 0, stillPos = null, lastFixPos = null;
+function autoParkTick(){
+  if (!me || travelMode !== 'car' || (nav && nav.sim)) return;
+  const now = Date.now(), kmh = mySpeed || 0;
+  lastFixPos = {lat:me.lat, lng:me.lng};
+  if (kmh > 18){ lastDriveT = now; stillSince = 0; stillPos = null; return; }
+  if (!lastDriveT || now - lastDriveT > 10 * 60000) return;      // no venía manejando
+  if (kmh < 4){
+    if (!stillSince || !stillPos || hav([stillPos.lat, stillPos.lng], [me.lat, me.lng]) > 40){ stillSince = now; stillPos = {lat:me.lat, lng:me.lng}; }
+    else if (now - stillSince > 4 * 60000 && !nav){ savePark(true, stillPos); lastDriveT = 0; }   // 4 min quieto
+  } else { stillSince = 0; stillPos = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  // al cerrar o bloquear la app justo después de manejar
+  if (document.visibilityState === 'hidden' && lastDriveT && Date.now() - lastDriveT < 3 * 60000 && (mySpeed || 0) < 8 && lastFixPos && !(nav && nav.sim)){
+    savePark(true, lastFixPos); lastDriveT = 0;
+  }
+});
+/* Atajo del celular al desconectarse del Bluetooth del auto: abre la app con ?estacione */
+const wantPark = /[?&](estacione|park)\b/.test(location.search);
+if (wantPark){
+  history.replaceState(null, '', location.pathname);
+  const waitFix = setInterval(() => { if (me){ clearInterval(waitFix); savePark(false); say('Guardé dónde estacionaste'); } }, 500);
+  setTimeout(() => clearInterval(waitFix), 60000);
+}
 
 /* ---------- Arranque ---------- */
 let destPos = null;
