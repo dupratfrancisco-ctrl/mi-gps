@@ -23,6 +23,15 @@
 .maplibregl-ctrl-attrib a{color:#9aa3b2}
 #btnNorth{top:calc(130px + env(safe-area-inset-top));display:none}
 #navVoice{top:calc(72px + env(safe-area-inset-top));display:none;font-size:20px}
+#btnPark{top:calc(188px + env(safe-area-inset-top));font-weight:800;font-size:20px;color:#fff;background:#1f6feb}
+body.nav #btnPark{display:none}
+.parkPin{width:34px;height:34px;border-radius:9px;background:#1f6feb;color:#fff;border:3px solid #fff;display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:0 3px 10px #0009}
+.park{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border-radius:14px;background:var(--bg);border:1px solid var(--line)}
+.park .pi{width:34px;height:34px;flex:none;border-radius:9px;background:#1f6feb;color:#fff;display:grid;place-items:center;font-weight:800}
+.park .tx{flex:1 1 140px;min-width:0}
+.park .tx b{display:block}
+.park .tx span{color:var(--mute);font-size:13px}
+.park .btn{min-height:40px;padding:0 12px;font-size:14px}
 body.nav #navVoice{display:grid}
 #btnNorth.on{display:grid}
 #btnNorth svg{transition:none}
@@ -122,6 +131,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
 </button>
 <button class="fab" id="navVoice" type="button" aria-label="Silenciar voz">🔊</button>
+<button class="fab" id="btnPark" type="button" aria-label="Guardar dónde estacioné">P</button>
 <button class="fab" id="btnNorth" aria-label="Volver al norte"><svg id="northIc" width="26" height="26" viewBox="0 0 24 24"><path d="M12 2 L16 12 L12 10 L8 12 Z" fill="#e6261f"/><path d="M12 22 L8 12 L12 14 L16 12 Z" fill="#9aa3b2"/></svg></button>
 <button class="fab" id="btnCfg" aria-label="Ajustes">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -144,6 +154,12 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   </div>
   <div class="chips" id="chips"></div>
   <div class="legend"><span><i style="background:#2ecc71"></i>Fluido</span><span><i style="background:#ff9f1a"></i>Moderado</span><span><i style="background:#e6261f"></i>Pesado</span><span><i style="background:#7a0000"></i>Detenido</span><span><i style="background:#e6261f;border-radius:50%;width:10px;height:10px"></i>Radar</span><span>⛔ Corte</span></div>
+  <div class="park hidden" id="parkBox">
+    <span class="pi">P</span>
+    <div class="tx"><b>Tu auto</b><span id="parkInfo"></span></div>
+    <button class="btn pri" id="parkGo" type="button">Ir caminando</button>
+    <button class="btn" id="parkDel" type="button">Ya lo saqué</button>
+  </div>
   <div class="status" id="status">Buscando tu ubicación…</div>
   <div class="routes" id="routes"></div>
   <button class="btn pri startNav hidden" id="go" type="button">▶ Iniciar navegación</button>
@@ -361,6 +377,7 @@ function initMap(){
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
     map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
     startGps();
+    drawPark();
     loadBaseCams().then(loadAreaCams);
     loadOneway();
   });
@@ -572,9 +589,10 @@ function wrongWay(path){
   }
   return out;
 }
+let travelMode = 'car';
 async function routeReq(from, to, alts, avoid, when){
   const tq = when ? `&${when.mode === 'arrive' ? 'arriveAt' : 'departAt'}=${encodeURIComponent(when.date.toISOString().slice(0, 19) + 'Z')}` : '';
-  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES${tq}`;
+  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=${travelMode}&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES${tq}`;
   if (!avoid.length) return fetch(u);
   const d = .00008;   // ~9 m alrededor de cada esquina a evitar
   return fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({avoidAreas:{rectangles:avoid.map(p => ({
@@ -586,13 +604,13 @@ async function fetchRoutes(from, to, alts, when){
   for (let tries = 0; tries < 4; tries++){
     r = await routeReq(from, to, alts, avoid, when); data = await r.json();
     if (!r.ok || !data.routes?.length) break;
-    const bad = data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
+    const bad = travelMode === 'pedestrian' ? [] : data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
     if (!bad.length) break;
     avoid = avoid.concat(bad).slice(0, 10);
   }
   if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
   if (!data.routes?.length) throw new Error('no encontré ruta a ese destino');
-  const ok = data.routes.filter(x => !wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))).length);
+  const ok = travelMode === 'pedestrian' ? data.routes : data.routes.filter(x => !wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))).length);
   if (ok.length) data.routes = ok;
   return data.routes.map(x => {
     const path = x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]));
@@ -614,7 +632,8 @@ async function fetchRoutes(from, to, alts, when){
   }).sort((a, b) => a.dur - b.dur);
 }
 
-async function route(dest, pos){
+async function route(dest, pos, opts = {}){
+  travelMode = opts.walk ? 'pedestrian' : 'car';
   if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
   lastDest = dest;
   const when = getWhen();
@@ -632,7 +651,8 @@ async function route(dest, pos){
       setStatus(`Tráfico estimado para ${fmtDia(when.date)} (según el tráfico habitual a esa hora)`);
     } else {
       setStatus(`Actualizado ${fmtHora(new Date())} · se recalcula cada 2 min`);
-      refreshTimer = setInterval(() => { if (lastDest && !nav && !getWhen()) route(lastDest, destPos); }, 120000);
+      const keepOpts = opts;
+      refreshTimer = setInterval(() => { if (lastDest && !nav && !getWhen()) route(lastDest, destPos, keepOpts); }, 120000);
     }
   }catch(e){
     setStatus('No pude calcular la ruta: ' + e.message);
@@ -875,7 +895,7 @@ function navUpdate(p){
   osmPrefetch(pt[0], pt[1]);
   { const ahead = posAt(r, Math.min(loc.along + 800, r.cum[r.cum.length - 1])); osmPrefetch(ahead.lat, ahead.lng); }
   const segA = r.path[loc.i], segB = r.path[loc.i + 1] || segA;
-  const limV = nav.curLimit = osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
+  const limV = nav.curLimit = travelMode === 'pedestrian' ? null : osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
   const lim = limV ? {v:limV} : null;
   const limEl = $('#navLimit');
   if (lim){ limEl.textContent = U(lim.v); limEl.classList.remove('none'); } else limEl.classList.add('none');
@@ -886,7 +906,7 @@ function navUpdate(p){
   if (over && Date.now() - (nav.overSaid || 0) > 30000){ say(`Cuidado, el límite es ${U(lim.v)}`); nav.overSaid = Date.now(); }
 
   // radares
-  const cam = r.cams.find(c => c.along > loc.along - 10);
+  const cam = travelMode === 'pedestrian' ? null : r.cams.find(c => c.along > loc.along - 10);
   const radarEl = $('#navRadar');
   if (cam){
     const dc = (cam.along - loc.along) * scale;
@@ -970,7 +990,7 @@ function toggleSim(){
     if (!nav) return;
     const now = performance.now(), dt = Math.min(.5, (now - tLast) / 1000); tLast = now;
     if (Math.random() < .02) cruise = .85 + Math.random() * .17;
-    let target = ((nav.curLimit || 40) / 3.6) * cruise;
+    let target = travelMode === 'pedestrian' ? 1.4 * cruise : ((nav.curLimit || 40) / 3.6) * cruise;
     const turn = nav.nextMan && !/STRAIGHT|ARRIVE|DEPART|KEEP|BEAR|MOTORWAY|EXIT|FREEWAY|HIGHWAY/.test(nav.nextMan);
     if (turn && nav.dNext != null){
       const slow = 5.5;                       // ~20 km/h para doblar
@@ -999,6 +1019,55 @@ $('#navVoice').onclick = () => {
 document.addEventListener('visibilitychange', async () => {
   if (nav && document.visibilityState === 'visible'){ try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{} }
 });
+
+/* ---------- Dónde estacioné ---------- */
+let parkMarker = null;
+const getPark = () => store.get('park', null);
+function drawPark(){
+  const pk = getPark();
+  if (parkMarker){ parkMarker.remove(); parkMarker = null; }
+  $('#parkBox').classList.toggle('hidden', !pk);
+  if (!pk) return;
+  if (map){
+    const el = document.createElement('div'); el.className = 'parkPin'; el.textContent = 'P';
+    parkMarker = new maplibregl.Marker({element:el}).setLngLat([pk.lng, pk.lat]).addTo(map);
+  }
+  updateParkInfo();
+}
+function updateParkInfo(){
+  const pk = getPark(); if (!pk) return;
+  const mins = Math.round((Date.now() - pk.t) / 60000);
+  const hace = mins < 1 ? 'recién' : mins < 60 ? `hace ${mins} min` : mins < 1440 ? `hace ${Math.floor(mins/60)} h ${mins%60} min` : `el ${new Date(pk.t).toLocaleDateString('es-AR', {day:'numeric', month:'short'})}`;
+  const dist = me ? ' · a ' + fmtKm(Math.round(hav([me.lat, me.lng], [pk.lat, pk.lng]))) : '';
+  $('#parkInfo').textContent = `Estacionado ${hace}${pk.addr ? ' · ' + pk.addr : ''}${dist}`;
+}
+async function savePark(){
+  if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
+  const pk = {lat:me.lat, lng:me.lng, t:Date.now(), addr:''};
+  store.set('park', pk);
+  drawPark();
+  setStatus('Listo, guardé dónde estacionaste.');
+  try{
+    const d = await (await fetch(`${T}/search/2/reverseGeocode/${pk.lat},${pk.lng}.json?key=${encodeURIComponent(apiKey)}&radius=50`)).json();
+    const a = d.addresses?.[0]?.address;
+    if (a){ pk.addr = [a.streetName, a.streetNumber].filter(Boolean).join(' ') || a.freeformAddress || ''; store.set('park', pk); updateParkInfo(); }
+  }catch{}
+}
+$('#btnPark').onclick = () => {
+  const pk = getPark();
+  if (!pk){ savePark(); return; }
+  map && map.easeTo({center:[pk.lng, pk.lat], zoom:17, duration:600});
+  $('#parkBox').classList.remove('hidden');
+  updateParkInfo();
+  setStatus('Tu auto está marcado con la P azul. Para guardar un lugar nuevo, tocá "Ya lo saqué" y después la P.');
+};
+$('#parkGo').onclick = () => {
+  const pk = getPark(); if (!pk) return;
+  $('#dest').value = 'Mi auto' + (pk.addr ? ', ' + pk.addr : '');
+  route('Mi auto', {lat:pk.lat, lng:pk.lng}, {walk:true});
+};
+$('#parkDel').onclick = () => { store.set('park', null); drawPark(); setStatus('Listo, borré la ubicación del auto.'); };
+setInterval(updateParkInfo, 60000);
 
 /* ---------- Arranque ---------- */
 let destPos = null;
