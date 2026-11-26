@@ -28,6 +28,9 @@ targets:
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSLocationWhenInUseUsageDescription: Mi GPS usa tu ubicación para mostrarte en el mapa y guiarte.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Mi GPS sigue tu ubicación mientras navegás, aunque bloquees el teléfono.
+        UIBackgroundModes:
+          - location
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIUserInterfaceStyle: Light

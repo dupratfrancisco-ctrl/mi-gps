@@ -44,7 +44,7 @@ final class LiveActivityManager {
         do {
             activity = try Activity.request(
                 attributes: NavAttributes(destination: destination),
-                content: ActivityContent(state: state, staleDate: nil),
+                content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(180)),
                 pushType: nil
             )
         } catch {
@@ -54,13 +54,29 @@ final class LiveActivityManager {
 
     private func update(_ state: NavAttributes.ContentState) {
         guard let activity else { return }
-        Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
+        Task { await activity.update(ActivityContent(state: state, staleDate: Date().addingTimeInterval(180))) }
     }
 
-    private func end() {
+    private func end() { endAll() }
+
+    /// Cierra todas las Actividades en vivo de la app
+    func endAll() {
         for a in Activity<NavAttributes>.activities {
             Task { await a.end(nil, dismissalPolicy: .immediate) }
         }
+        activity = nil
+    }
+
+    /// Igual que endAll, pero espera a que termine (se usa justo antes de que se cierre la app)
+    func endAllAndWait() {
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            for a in Activity<NavAttributes>.activities {
+                await a.end(nil, dismissalPolicy: .immediate)
+            }
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 2)
         activity = nil
     }
 }

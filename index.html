@@ -217,10 +217,22 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
 <script>
 {
 const $ = s => document.querySelector(s);
+// Guarda la configuración en el navegador y, en la app de iPhone, también en el teléfono (no se borra al cerrar)
 const store = {
-  get(k, d){ try{ const v = localStorage.getItem('migps:'+k); return v ? JSON.parse(v) : d }catch{ return d } },
-  set(k, v){ try{ localStorage.setItem('migps:'+k, JSON.stringify(v)) }catch{} }
+  get(k, d){
+    try{
+      let v = localStorage.getItem('migps:'+k);
+      if (v == null && window.__nativeStore && window.__nativeStore[k] != null){ v = window.__nativeStore[k]; localStorage.setItem('migps:'+k, v); }
+      return v ? JSON.parse(v) : d;
+    }catch{ return d }
+  },
+  set(k, v){
+    const j = JSON.stringify(v);
+    try{ localStorage.setItem('migps:'+k, j) }catch{}
+    try{ window.webkit?.messageHandlers?.migps?.postMessage({type:'store', key:k, value:j}); }catch{}
+  }
 };
+try{ navigator.storage?.persist?.(); }catch{}
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 let apiKey = (window.TOMTOM_KEY || '').trim() || store.get('key', '');
@@ -553,7 +565,7 @@ function moveTo(ll, zoom){ map.easeTo({center:ll2(ll), zoom, duration:600}); }
 function startGps(){
   if (!navigator.geolocation){ setStatus('Este navegador no da ubicación.'); return; }
   let first = true;
-  navigator.geolocation.watchPosition(p => {
+  const onFix = p => {
     if (nav && nav.sim) return;
     me = {lat:p.coords.latitude, lng:p.coords.longitude};
     const h = p.coords.heading;
@@ -564,8 +576,14 @@ function startGps(){
     if (!nav){ setMe([me.lat, me.lng], myHeading); driveUpdate(); }
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
-  }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
-  {enableHighAccuracy:true, maximumAge:5000});
+  };
+  navigator.geolocation.watchPosition(onFix, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
+    {enableHighAccuracy:true, maximumAge:5000});
+  // la app de iPhone manda la ubicación cuando la pantalla no está visible
+  window.__nativeLoc = (lat, lng, spd, crs) => {
+    if (document.visibilityState !== 'hidden') return;
+    onFix({coords:{latitude:lat, longitude:lng, speed:spd >= 0 ? spd : null, heading:crs >= 0 ? crs : null}});
+  };
 }
 $('#btnMe').onclick = () => {
   if (nav){ $('#recenter').click(); return; }
@@ -708,7 +726,8 @@ async function geocode(q){
    Fuentes: Gobierno de la Ciudad y prensa (Perfil, iProfesional, C5N). */
 // Coordenadas de cada esquina tomadas de OpenStreetMap. a → b es el único sentido permitido.
 const ONEWAY_SEGS = [
-  {calle:'Av. Honorio Pueyrredón (Á. Gallardo → Neuquén)', a:[-34.607335,-58.445604], b:[-34.615927,-58.440422]},
+  // incluye la calle de convivencia paralela (Avellaneda → Neuquén, hacia el sur): por eso el ancho de 45 m
+  {calle:'Av. Honorio Pueyrredón y calle de convivencia (Á. Gallardo → Neuquén)', a:[-34.607335,-58.445604], b:[-34.615927,-58.440422], w:45},
   {calle:'Av. Acoyte (Neuquén → Díaz Vélez)',             a:[-34.615894,-58.43759],  b:[-34.608787,-58.440103]},
   {calle:'Av. La Plata (Quito → Rivadavia)',              a:[-34.617186,-58.428772], b:[-34.615111,-58.429259]},
   {calle:'José Mármol (Rivadavia → H. Yrigoyen)',         a:[-34.613724,-58.426147], b:[-34.614882,-58.425965]},
@@ -734,7 +753,7 @@ function wrongWay(path){
       const px = (p[1]-sg.a[1])*kx, py = (p[0]-sg.a[0])*ky;
       const t = (px*dx + py*dy) / L2;
       if (t < -0.02 || t > 1.02) return false;
-      return Math.hypot(px - t*dx, py - t*dy) < 22;
+      return Math.hypot(px - t*dx, py - t*dy) < (sg.w || 22);
     };
     for (let i = 0; i < path.length - 1; i++){
       const P = path[i], Q = path[i+1];
