@@ -524,11 +524,33 @@ function setMe(ll, deg){
     el.className = 'meArrow';
     el.innerHTML = '<svg viewBox="0 0 40 40"><path d="M20 3 L34 35 L20 27 L6 35 Z" fill="#0a5cff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
     meMarker = new maplibregl.Marker({element:el, rotationAlignment:'map', pitchAlignment:'map'}).setLngLat(ll2(ll)).addTo(map);
-  } else meMarker.setLngLat(ll2(ll));
-  meMarker.setRotation(deg || 0);
+    meCur = ll; meRot = deg || 0; lastSetT = performance.now();
+    meMarker.setRotation(meRot);
+    return 0;
+  }
+  // deslizamiento suave entre una posición y la siguiente
+  const now = performance.now();
+  const dur = Math.min(1200, Math.max(250, now - lastSetT));
+  lastSetT = now;
+  const from = meCur || ll, fromRot = meRot;
+  const dRot = (((deg || 0) - fromRot) % 360 + 540) % 360 - 180;
+  cancelAnimationFrame(meAnim);
+  if (hav(from, ll) > 400){ meCur = ll; meRot = deg || 0; meMarker.setLngLat(ll2(ll)).setRotation(meRot); return 0; }
+  const t0 = now;
+  const step = t => {
+    const k = Math.min(1, Math.max(0, (t - t0) / dur));
+    meCur = [from[0] + (ll[0] - from[0]) * k, from[1] + (ll[1] - from[1]) * k];
+    meRot = fromRot + dRot * k;
+    meMarker.setLngLat(ll2(meCur)).setRotation(meRot);
+    if (k < 1) meAnim = requestAnimationFrame(step);
+  };
+  meAnim = requestAnimationFrame(step);
+  return dur;
 }
-function follow(pt, deg){
-  map.easeTo({center:ll2(pt), zoom:17.2, pitch:50, bearing:nav && nav.headUp ? deg : map.getBearing(), duration:650, offset:[0, Math.round(innerHeight * .18)]});
+let meAnim = 0, meCur = null, meRot = 0, lastSetT = 0;
+function follow(pt, deg, dur){
+  map.easeTo({center:ll2(pt), zoom:17.2, pitch:50, bearing:nav && nav.headUp ? deg : map.getBearing(),
+    duration:dur || 650, easing:t => t, offset:[0, Math.round(innerHeight * .18)]});
 }
 const ANG = {TURN_LEFT:-90, TURN_RIGHT:90, SHARP_LEFT:-135, SHARP_RIGHT:135, BEAR_LEFT:-45, BEAR_RIGHT:45,
   KEEP_LEFT:-30, KEEP_RIGHT:30, MAKE_UTURN:-180, TRY_MAKING_UTURN:-180, ENTER_MOTORWAY:30, ENTER_FREEWAY:30,
@@ -635,11 +657,11 @@ function navUpdate(p){
   else if (dNext <= 45 && st < 2){ say(g.msg); nav.spoken[k] = 2; }
 
   const A = r.path[loc.i], B = r.path[loc.i + 1] || A;
-  setMe(pt, A === B ? myHeading : bearing(A, B));
   const deg = A === B ? myHeading : bearing(A, B);
+  const animDur = setMe(pt, deg);
   myHeading = deg;
   nav.last = {pt, deg};
-  if (nav.follow) follow(pt, deg);
+  if (nav.follow) follow(pt, deg, animDur);
 }
 
 function setNavRoute(r){
