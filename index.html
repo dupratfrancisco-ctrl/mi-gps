@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mi GPS">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Mi GPS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0e1116;--panel:#171b22;--line:#262c36;--ink:#f2f4f7;--mute:#9aa3b2;--blue:#0a5cff;--green:#00a05a;--amber:#ffb400;--red:#e6261f}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.45 Figtree,system-ui,sans-serif;overflow:hidden}
+#map{position:fixed;inset:0}
+button,input{font:inherit;color:inherit}
+.btn{min-height:44px;border:0;border-radius:12px;padding:0 16px;background:var(--line);font-weight:700;cursor:pointer}
+.btn:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.btn.pri{background:var(--blue);color:#fff}
+.fab{position:fixed;right:14px;width:48px;height:48px;border-radius:50%;border:0;background:var(--panel);color:var(--ink);box-shadow:0 4px 14px #0006;display:grid;place-items:center;cursor:pointer;z-index:5}
+#btnMe{top:calc(14px + env(safe-area-inset-top))}
+#btnCfg{top:calc(72px + env(safe-area-inset-top))}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--panel);border-radius:20px 20px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px #0007;max-height:62vh;overflow:auto}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+form.search{display:flex;gap:8px}
+form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--bg);padding:0 14px;font-size:16px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
+.chip{flex:none;min-height:44px;border-radius:22px;border:1px solid var(--line);background:var(--bg);padding:0 16px;font-weight:700;cursor:pointer}
+.status{color:var(--mute);font-size:14px;margin:10px 2px 0}
+.routes{display:grid;gap:8px;margin-top:10px}
+.route{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;text-align:left;border:2px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg);cursor:pointer}
+.route.sel{border-color:var(--blue)}
+.route .t{font-size:28px;font-weight:800;line-height:1.05}
+.route .eta{font-weight:700;text-align:right;white-space:nowrap}
+.route .sub{color:var(--mute);font-size:14px;grid-column:1/-1}
+.tag{display:inline-block;font-size:13px;font-weight:700;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:middle;color:#000}
+.go{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.go a{display:grid;place-items:center;min-height:48px;border-radius:12px;font-weight:800;text-decoration:none;color:#fff}
+.go .waze{background:#33ccff;color:#04263a}.go .gm{background:var(--green)}
+dialog{border:0;border-radius:18px;background:var(--panel);color:var(--ink);width:min(520px,94vw);padding:18px;max-height:90vh}
+dialog::backdrop{background:#000a}
+dialog h2{margin:0 0 6px;font-size:22px}
+dialog p{color:var(--mute);margin:4px 0 12px;font-size:14px}
+dialog label{display:block;font-weight:700;margin:12px 0 6px}
+dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--bg);padding:0 12px;font-size:16px}
+.favrow{display:grid;grid-template-columns:7em 1fr 44px;gap:6px;margin-bottom:6px}
+.favrow button{border:0;border-radius:10px;background:var(--line);cursor:pointer;font-size:18px}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<button class="fab" id="btnMe" aria-label="Centrar en mi ubicación">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+</button>
+<button class="fab" id="btnCfg" aria-label="Ajustes">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+</button>
+
+<section class="sheet" id="sheet">
+  <div class="grab"></div>
+  <form class="search" id="searchForm">
+    <input id="dest" type="search" placeholder="¿A dónde vas?" autocomplete="off" enterkeyhint="go">
+    <button class="btn pri" type="submit">Ir</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div class="status" id="status">Buscando tu ubicación…</div>
+  <div class="routes" id="routes"></div>
+  <div class="go hidden" id="go">
+    <a class="waze" id="goWaze" href="#" target="_blank" rel="noopener">Navegar en Waze</a>
+    <a class="gm" id="goGm" href="#" target="_blank" rel="noopener">Google Maps</a>
+  </div>
+</section>
+
+<dialog id="cfg">
+  <h2>Ajustes</h2>
+  <p>Todo se guarda solo en este celular. La clave no se sube a GitHub.</p>
+  <label for="key">Clave de Google Maps</label>
+  <input id="key" type="password" placeholder="AIza…" autocomplete="off">
+  <label>Destinos frecuentes</label>
+  <div id="favList"></div>
+  <button class="btn" id="addFav" type="button">+ Agregar destino</button>
+  <div class="row">
+    <button class="btn" id="cfgCancel" type="button">Cancelar</button>
+    <button class="btn pri" id="cfgSave" type="button">Guardar</button>
+  </div>
+</dialog>
+
+<script>
+{
+const $ = s => document.querySelector(s);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('migps:'+k); return v ? JSON.parse(v) : d }catch{ return d } },
+  set(k, v){ try{ localStorage.setItem('migps:'+k, JSON.stringify(v)) }catch{} }
+};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let apiKey = store.get('key', '');
+let favs = store.get('favs', [
+  {name:'Casa', addr:''},
+  {name:'Facu', addr:'Universidad de Palermo, Mario Bravo 1050, CABA'},
+  {name:'Laburo', addr:''}
+]);
+let map, meMarker, traffic, me = null, lines = [], routes = [], sel = 0, lastDest = '', refreshTimer;
+
+const setStatus = t => $('#status').textContent = t;
+
+/* ---------- Ajustes ---------- */
+function favRow(f){
+  const d = document.createElement('div');
+  d.className = 'favrow';
+  d.innerHTML = `<input placeholder="Nombre" value="${esc(f.name)}"><input placeholder="Dirección" value="${esc(f.addr)}"><button type="button" aria-label="Borrar">×</button>`;
+  d.querySelector('button').onclick = () => d.remove();
+  return d;
+}
+function openCfg(){
+  $('#key').value = apiKey;
+  const list = $('#favList'); list.innerHTML = '';
+  favs.forEach(f => list.appendChild(favRow(f)));
+  $('#cfg').showModal();
+}
+$('#addFav').onclick = () => $('#favList').appendChild(favRow({name:'', addr:''}));
+$('#cfgCancel').onclick = () => $('#cfg').close();
+$('#cfgSave').onclick = () => {
+  const newKey = $('#key').value.trim();
+  favs = [...document.querySelectorAll('.favrow')].map(r => {
+    const [n, a] = r.querySelectorAll('input');
+    return {name:n.value.trim(), addr:a.value.trim()};
+  }).filter(f => f.name);
+  store.set('favs', favs);
+  renderChips();
+  $('#cfg').close();
+  if (newKey !== apiKey){ apiKey = newKey; store.set('key', apiKey); location.reload(); }
+};
+$('#btnCfg').onclick = openCfg;
+
+function renderChips(){
+  $('#chips').innerHTML = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('');
+}
+$('#chips').onclick = e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const f = favs[+b.dataset.i];
+  if (!f.addr){ openCfg(); return; }
+  $('#dest').value = f.addr;
+  route(f.addr);
+};
+$('#searchForm').onsubmit = e => { e.preventDefault(); const v = $('#dest').value.trim(); if (v) route(v); };
+
+/* ---------- Mapa ---------- */
+const darkStyle = [
+  {elementType:'geometry', stylers:[{color:'#1b2029'}]},
+  {elementType:'labels.text.fill', stylers:[{color:'#9aa3b2'}]},
+  {elementType:'labels.text.stroke', stylers:[{color:'#0e1116'}]},
+  {featureType:'road', elementType:'geometry', stylers:[{color:'#2c3340'}]},
+  {featureType:'road.highway', elementType:'geometry', stylers:[{color:'#3a4352'}]},
+  {featureType:'water', elementType:'geometry', stylers:[{color:'#0b2238'}]},
+  {featureType:'poi', stylers:[{visibility:'off'}]},
+  {featureType:'transit', stylers:[{visibility:'off'}]}
+];
+
+window.initMap = () => {
+  map = new google.maps.Map($('#map'), {
+    center:{lat:-34.6037, lng:-58.3816}, zoom:13, styles:darkStyle,
+    disableDefaultUI:true, gestureHandling:'greedy', clickableIcons:false
+  });
+  traffic = new google.maps.TrafficLayer();
+  traffic.setMap(map);
+  meMarker = new google.maps.Marker({map, visible:false, zIndex:99, icon:{
+    path:google.maps.SymbolPath.CIRCLE, scale:9, fillColor:'#0a5cff', fillOpacity:1, strokeColor:'#fff', strokeWeight:3}});
+  startGps();
+};
+
+function startGps(){
+  if (!navigator.geolocation){ setStatus('Este navegador no da ubicación.'); return; }
+  let first = true;
+  navigator.geolocation.watchPosition(p => {
+    me = {lat:p.coords.latitude, lng:p.coords.longitude};
+    meMarker.setPosition(me); meMarker.setVisible(true);
+    if (first){ map.setCenter(me); map.setZoom(15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
+  }, err => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
+  {enableHighAccuracy:true, maximumAge:5000});
+}
+$('#btnMe').onclick = () => { if (me && map){ map.panTo(me); map.setZoom(16); } };
+
+/* ---------- Rutas con tráfico (Routes API) ---------- */
+const fmtMin = s => { const m = Math.round(s/60); return m < 60 ? `${m} min` : `${Math.floor(m/60)} h ${m%60} min`; };
+const fmtKm = m => m < 1000 ? `${m} m` : `${(m/1000).toFixed(1).replace('.', ',')} km`;
+const fmtHora = d => d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+
+async function route(dest){
+  if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
+  lastDest = dest;
+  setStatus('Calculando con el tráfico de ahora…');
+  try{
+    const r = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'X-Goog-Api-Key':apiKey,
+        'X-Goog-FieldMask':'routes.duration,routes.staticDuration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.description,routes.legs.endLocation'
+      },
+      body:JSON.stringify({
+        origin:{location:{latLng:{latitude:me.lat, longitude:me.lng}}},
+        destination:{address:dest},
+        travelMode:'DRIVE',
+        routingPreference:'TRAFFIC_AWARE_OPTIMAL',
+        computeAlternativeRoutes:true,
+        languageCode:'es-419', regionCode:'AR', units:'METRIC'
+      })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error?.message || 'Error ' + r.status);
+    if (!data.routes?.length){ setStatus('No encontré ruta a ese destino.'); clearRoutes(); return; }
+    routes = data.routes.map(x => ({
+      dur:parseInt(x.duration), base:parseInt(x.staticDuration || x.duration),
+      dist:x.distanceMeters, via:x.description || '',
+      path:google.maps.geometry.encoding.decodePath(x.polyline.encodedPolyline),
+      end:x.legs?.[0]?.endLocation?.latLng
+    })).sort((a, b) => a.dur - b.dur);
+    sel = 0;
+    draw();
+    setStatus(`Actualizado ${fmtHora(new Date())} · se recalcula cada 2 min`);
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => lastDest && route(lastDest), 120000);
+  }catch(e){
+    setStatus('No pude calcular la ruta: ' + e.message);
+  }
+}
+
+function clearRoutes(){ lines.forEach(l => l.setMap(null)); lines = []; routes = []; $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
+
+function draw(){
+  lines.forEach(l => l.setMap(null));
+  lines = routes.map((r, i) => new google.maps.Polyline({
+    map, path:r.path, zIndex:i === sel ? 10 : 1,
+    strokeColor:i === sel ? '#0a5cff' : '#6b7486', strokeOpacity:i === sel ? .95 : .7, strokeWeight:i === sel ? 8 : 6
+  }));
+  lines.forEach((l, i) => l.addListener('click', () => { sel = i; draw(); }));
+  const b = new google.maps.LatLngBounds();
+  routes[sel].path.forEach(p => b.extend(p));
+  map.fitBounds(b, {top:110, bottom:Math.round(innerHeight * .45), left:30, right:70});
+
+  $('#routes').innerHTML = routes.map((r, i) => {
+    const delay = r.dur - r.base, mins = Math.round(delay / 60);
+    const tag = mins >= 10 ? `<span class="tag" style="background:var(--red);color:#fff">+${mins} min tráfico</span>`
+              : mins >= 3 ? `<span class="tag" style="background:var(--amber)">+${mins} min tráfico</span>`
+              : `<span class="tag" style="background:var(--green);color:#fff">fluido</span>`;
+    return `<button class="route ${i === sel ? 'sel' : ''}" data-i="${i}">
+      <span class="t">${fmtMin(r.dur)}${tag}</span>
+      <span class="eta">Llegás ${fmtHora(new Date(Date.now() + r.dur * 1000))}</span>
+      <span class="sub">${fmtKm(r.dist)}${r.via ? ' · por ' + esc(r.via) : ''}${i === 0 ? ' · la más rápida' : ''}</span>
+    </button>`;
+  }).join('');
+
+  const r = routes[sel];
+  const q = encodeURIComponent(lastDest);
+  $('#goWaze').href = r.end ? `https://waze.com/ul?ll=${r.end.latitude},${r.end.longitude}&navigate=yes` : `https://waze.com/ul?q=${q}&navigate=yes`;
+  $('#goGm').href = `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=driving`;
+  $('#go').classList.remove('hidden');
+}
+$('#routes').onclick = e => { const b = e.target.closest('.route'); if (b){ sel = +b.dataset.i; draw(); } };
+
+/* ---------- Arranque ---------- */
+renderChips();
+if (!apiKey){
+  setStatus('Primero cargá tu clave de Google Maps en Ajustes (⚙).');
+  openCfg();
+} else {
+  const s = document.createElement('script');
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=geometry&language=es&region=AR&callback=initMap`;
+  s.async = true;
+  s.onerror = () => setStatus('No cargó Google Maps. Revisá la clave en Ajustes.');
+  document.head.appendChild(s);
+  window.gm_authFailure = () => setStatus('Google rechazó la clave. Revisá que tenga activadas Maps JavaScript API y Routes API.');
+}
+}
+</script>
+</body>
+</html>
