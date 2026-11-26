@@ -269,7 +269,8 @@ let suggs = [], suggTimer, suggSeq = 0;
 const PIN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>';
 const SHOP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 9h16l-1 11H5zM8 9V7a4 4 0 0 1 8 0v2"/></svg>';
 const CAT = {'cafe':'Café','café':'Café','restaurant':'Restaurante','fast food':'Comida rápida','pub':'Bar','bar':'Bar','petrol station':'Estación de servicio','gas station':'Estación de servicio','parking garage':'Estacionamiento','open parking area':'Estacionamiento','hospital':'Hospital','pharmacy':'Farmacia','supermarkets & hypermarkets':'Supermercado','shop':'Comercio','hotel':'Hotel','college/university':'Universidad','school':'Escuela','bank':'Banco','atm':'Cajero','shopping center':'Shopping','stadium':'Estadio','park':'Parque','gym':'Gimnasio','bakery':'Panadería','ice cream parlor':'Heladería','pizza':'Pizzería','latin american':'Restaurante','grill':'Parrilla','steak house':'Parrilla','railroad station':'Estación de tren','metro station':'Estación de subte','bus stop':'Parada de colectivo','airport':'Aeropuerto','clothing shop':'Ropa','doctor':'Médico','dentist':'Dentista','church':'Iglesia','museum':'Museo','cinema':'Cine','theater':'Teatro'};
-const catEs = c => { const k = c.toLowerCase(); return CAT[k] || (c ? c[0].toUpperCase() + c.slice(1) : ''); };
+const CATRX = [[/cloth|fashion|boutique/, 'Ropa'], [/shoe|footwear/, 'Calzado'], [/jewel/, 'Joyería'], [/restaurant|food/, 'Restaurante'], [/caf/, 'Café'], [/bar|pub/, 'Bar'], [/shop|store|retail/, 'Comercio'], [/hotel|hostel/, 'Hotel'], [/hospital|clinic/, 'Salud'], [/school|university|college/, 'Educación'], [/parking/, 'Estacionamiento'], [/fuel|petrol|gas station/, 'Estación de servicio'], [/bank|atm/, 'Banco'], [/park|garden/, 'Parque'], [/gym|fitness|sport/, 'Deporte'], [/pharma|chemist/, 'Farmacia'], [/supermarket|grocery/, 'Supermercado'], [/bakery/, 'Panadería'], [/museum|gallery/, 'Museo'], [/church|place of worship/, 'Iglesia']];
+const catEs = c => { const k = (c || '').toLowerCase(); if (CAT[k]) return CAT[k]; for (const [rx, es] of CATRX) if (rx.test(k)) return es; return c ? c[0].toUpperCase() + c.slice(1) : ''; };
 function hideSugg(){ suggs = []; $('#sugg').innerHTML = ''; }
 /* Lugares corregidos a mano: nombre real y dirección verificada */
 const MY_PLACES = [
@@ -298,7 +299,7 @@ async function photonHits(q){
   const lat = me ? me.lat : -34.6037, lon = me ? me.lng : -58.3816;
   try{
     const d = await (await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}&limit=6&lang=default`)).json();
-    return (d.features || []).filter(f => f.properties?.name).map(f => {
+    return (d.features || []).filter(f => f.properties?.name && hav([lat, lon], [f.geometry.coordinates[1], f.geometry.coordinates[0]]) < 300000).map(f => {
       const pr = f.properties, pos = {lat:f.geometry.coordinates[1], lng:f.geometry.coordinates[0]};
       const street = [pr.street, pr.housenumber].filter(Boolean).join(' ');
       const isPoi = !['house', 'street', 'city', 'district', 'locality', 'county', 'state'].includes(pr.type) && pr.osm_key !== 'highway' && pr.osm_key !== 'place';
