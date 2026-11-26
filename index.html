@@ -526,6 +526,9 @@ function addAppLayers(){
     map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#b9a3ff', 'line-width':7, 'line-opacity':.85}});
+    map.addSource('rdone', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({id:'route-done', type:'line', source:'rdone',
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#7a3cff', 'line-opacity':.28, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
     map.addLayer({id:'route-casing', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#3b1596', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 9, 17, 16]}});
     map.addLayer({id:'route-main', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
@@ -841,8 +844,18 @@ function setTrafficOnRoute(r){
     jamMarkers.push(new maplibregl.Marker({element:el}).setLngLat(ll2(p)).addTo(map));
   }
 }
+// Durante la navegación: lo ya recorrido queda transparente y la ruta fuerte arranca en la flecha
+function setProgress(r, i, at){
+  const done = map && map.getSource('rdone'), main = map && map.getSource('routes');
+  if (!done || !main) return;
+  const p = ll2(at);
+  done.setData({type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[...r.path.slice(0, i + 1).map(ll2), p]}});
+  main.setData({type:'FeatureCollection', features:[{type:'Feature', properties:{sel:true, i:0},
+    geometry:{type:'LineString', coordinates:[p, ...r.path.slice(i + 1).map(ll2)]}}]});
+}
 function setRouteLines(){
   setTrafficOnRoute(routes[sel]);
+  const dn = map && map.getSource('rdone'); if (dn) dn.setData({type:'FeatureCollection', features:[]});
   const src = map && map.getSource('routes'); if (!src) return;
   src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
     geometry:{type:'LineString', coordinates:r.path.map(ll2)}}))});
@@ -1151,6 +1164,7 @@ function navUpdate(p){
   // la flecha va pegada a la línea de la ruta (si estás a menos de 35 m de ella)
   const sp = loc.off < 35 ? posAt(r, loc.along) : null;
   const vis = sp ? [sp.lat, sp.lng] : pt;
+  if (sp && Math.abs(loc.along - (nav.progAt ?? -99)) > 3){ setProgress(r, loc.i, vis); nav.progAt = loc.along; }
   const animDur = setMe(vis, deg);
   myHeading = deg;
   nav.last = {pt:vis, deg};
