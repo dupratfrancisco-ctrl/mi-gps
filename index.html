@@ -305,9 +305,12 @@ function initMap(){
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':11, 'line-opacity':.9}});
     map.addLayer({id:'route-main', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#0a5cff', 'line-width':7}});
+    map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
+      paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
     map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
     startGps();
-    loadAreaCams();
+    loadBaseCams().then(loadAreaCams);
   });
   map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
   map.on('rotate', updateNorth);
@@ -459,12 +462,10 @@ function addCams(list){
     if (camStore.has(n.id)) continue;
     const c = {id:n.id, pt:[n.lat, n.lon], max:parseInt(n.tags?.maxspeed) || null};
     camStore.set(n.id, c);
-    const el = document.createElement('div');
-    el.className = 'camIcon';
-    el.title = 'Radar' + (c.max ? ' ' + c.max + ' km/h' : '');
-    el.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5" fill="#e6261f"/></svg>';
-    camMarkers.set(n.id, new maplibregl.Marker({element:el}).setLngLat([n.lon, n.lat]).addTo(map));
   }
+  const src = map && map.getSource('cams');
+  if (src) src.setData({type:'FeatureCollection', features:[...camStore.values()].map(c => ({type:'Feature',
+    properties:{max:c.max ? String(c.max) : ''}, geometry:{type:'Point', coordinates:ll2(c.pt)}}))});
 }
 async function loadAreaCams(){
   if (!map || map.getZoom() < 10.5) return;
@@ -482,17 +483,30 @@ async function loadAreaCams(){
   addCams(list);
   window.__camCount = camStore.size;
 }
+let camsReady = null;
+function loadBaseCams(){
+  camsReady = fetch('cams.json?v=1').then(r => r.json()).then(list => {
+    addCams(list.map((c, i) => ({id:'b' + i, lat:c[0], lon:c[1], tags:{maxspeed:c[2] || ''}})));
+    window.__camCount = camStore.size;
+  }).catch(() => {});
+  return camsReady;
+}
 async function loadCams(r){
   r.cams = [];
+  if (camsReady) await camsReady;
+  matchCams(r);
   const lats = r.path.map(p => p[0]), lngs = r.path.map(p => p[1]);
   const pad = .005, bb = [Math.min(...lats)-pad, Math.min(...lngs)-pad, Math.max(...lats)+pad, Math.max(...lngs)+pad].map(v => v.toFixed(5)).join(',');
-  const list = await overpass(bb);
-  if (list) addCams(list);
+  overpass(bb).then(list => { if (list){ addCams(list); matchCams(r); } });
+}
+function matchCams(r){
+  const said = new Set((r.cams || []).filter(c => c.said).map(c => c.along));
   const cams = [];
   for (const c of camStore.values()){
     const loc = locate(r, c.pt, 0, true);
     if (loc.off > 35) continue;
-    cams.push({along:loc.along, max:c.max, pt:c.pt});
+    if (cams.some(x => Math.abs(x.along - loc.along) < 15)) continue;
+    cams.push({along:loc.along, max:c.max, pt:c.pt, said:said.has(loc.along)});
   }
   cams.sort((a, b) => a.along - b.along);
   r.cams = cams;
