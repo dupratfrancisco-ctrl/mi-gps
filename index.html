@@ -22,6 +22,8 @@
 .maplibregl-ctrl-attrib{font-size:10px;background:#0e1116aa!important;color:#9aa3b2}
 .maplibregl-ctrl-attrib a{color:#9aa3b2}
 #btnNorth{top:calc(130px + env(safe-area-inset-top));display:none}
+#navVoice{top:calc(72px + env(safe-area-inset-top));display:none;font-size:20px}
+body.nav #navVoice{display:grid}
 #btnNorth.on{display:grid}
 #btnNorth svg{transition:none}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--mute);font-size:13px;margin-top:8px}
@@ -85,7 +87,7 @@ body.nav .navTop,body.nav .navBot{display:flex}
 .navTop .msg{font-size:17px;font-weight:700;line-height:1.25;margin-top:4px}
 .navTop .then{font-size:13px;opacity:.85;margin-top:6px}
 .navBot{left:0!important;right:0!important;bottom:0;align-items:center;gap:10px;background:var(--panel);border-radius:20px 20px 0 0;padding:12px 12px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px #0008}
-.navBot .big{font-size:26px;font-weight:800;color:var(--green);line-height:1.1;white-space:nowrap}
+.navBot .big{font-size:26px;font-weight:800;color:var(--green);line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navBot .small{color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navBot .grow{flex:1;min-width:0}
 .navBot .btn{flex:none;padding:0 12px}
@@ -114,6 +116,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
 <button class="fab" id="btnMe" aria-label="Centrar en mi ubicación">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
 </button>
+<button class="fab" id="navVoice" type="button" aria-label="Silenciar voz">🔊</button>
 <button class="fab" id="btnNorth" aria-label="Volver al norte"><svg id="northIc" width="26" height="26" viewBox="0 0 24 24"><path d="M12 2 L16 12 L12 10 L8 12 Z" fill="#e6261f"/><path d="M12 22 L8 12 L12 14 L16 12 Z" fill="#9aa3b2"/></svg></button>
 <button class="fab" id="btnCfg" aria-label="Ajustes">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -149,7 +152,6 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
     <div class="big" id="navEta">—</div>
     <div class="small" id="navRest">—</div>
   </div>
-  <button class="btn" id="navVoice" type="button" aria-label="Silenciar voz">🔊</button>
   <button class="btn" id="navSim" type="button" aria-label="Simular viaje">▶</button>
   <button class="btn exit" id="navExit" type="button">Salir</button>
 </div>
@@ -749,6 +751,7 @@ function navUpdate(p){
   if (k < 0) k = r.instr.length - 1;
   const g = r.instr[k] || {off:r.dist, msg:'Seguí por la ruta', man:''};
   const dNext = Math.max(0, g.off - done);
+  nav.dNext = dNext; nav.nextMan = g.man; nav.rest = rest;
   $('#navDist').textContent = fmtDist(dNext);
   $('#navMsg').textContent = g.msg;
   const n = r.instr[k+1];
@@ -762,11 +765,11 @@ function navUpdate(p){
   osmPrefetch(pt[0], pt[1]);
   { const ahead = posAt(r, Math.min(loc.along + 800, r.cum[r.cum.length - 1])); osmPrefetch(ahead.lat, ahead.lng); }
   const segA = r.path[loc.i], segB = r.path[loc.i + 1] || segA;
-  const limV = osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
+  const limV = nav.curLimit = osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
   const lim = limV ? {v:limV} : null;
   const limEl = $('#navLimit');
   if (lim){ limEl.textContent = U(lim.v); limEl.classList.remove('none'); } else limEl.classList.add('none');
-  const spd = Math.round(nav.sim ? 72 : mySpeed);
+  const spd = Math.round(nav.sim ? nav.simV * 3.6 : mySpeed);
   $('#navSpeed').textContent = U(spd);
   const over = lim && spd > lim.v + 3;
   $('#navSpeedBox').classList.toggle('over', !!over);
@@ -849,14 +852,30 @@ function stopNav(){
 function toggleSim(){
   if (!nav) return;
   if (nav.sim){ clearInterval(nav.sim); nav.sim = null; $('#navSim').textContent = '▶'; return; }
-  let s = nav.r.cum[nav.idx] || 0;
+  let s = nav.r.cum[nav.idx] || 0, v = 0, cruise = .9 + Math.random() * .12, tLast = performance.now();
+  nav.simV = 0;
   $('#navSim').textContent = '■';
+  // simulación realista: acelera, va cerca del límite, frena en los giros y al llegar
   nav.sim = setInterval(() => {
     if (!nav) return;
-    s += 12;
+    const now = performance.now(), dt = Math.min(.5, (now - tLast) / 1000); tLast = now;
+    if (Math.random() < .02) cruise = .85 + Math.random() * .17;
+    let target = ((nav.curLimit || 40) / 3.6) * cruise;
+    const turn = nav.nextMan && !/STRAIGHT|ARRIVE|DEPART|KEEP|BEAR|MOTORWAY|EXIT|FREEWAY|HIGHWAY/.test(nav.nextMan);
+    if (turn && nav.dNext != null){
+      const slow = 5.5;                       // ~20 km/h para doblar
+      const brakeDist = (v*v - slow*slow) / (2 * 2.5) + 15;
+      if (nav.dNext < Math.max(25, brakeDist)) target = Math.min(target, slow);
+    }
+    if (nav.rest != null){ const stopTarget = Math.sqrt(Math.max(0, 2 * 2.5 * (nav.rest - 8))); target = Math.min(target, stopTarget); }
+    const acc = target > v ? 2.2 : -3;      // m/s² aceleración / frenado
+    v = target > v ? Math.min(target, v + acc * dt) : Math.max(target, v + acc * dt);
+    v = Math.max(0, v);
+    nav.simV = v;
+    s += v * dt;
     const total = nav.r.cum[nav.r.cum.length - 1];
     navUpdate(posAt(nav.r, Math.min(s, total)));
-  }, 600);
+  }, 250);
 }
 
 $('#go').onclick = startNav;
