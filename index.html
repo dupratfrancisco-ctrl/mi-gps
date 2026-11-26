@@ -14,13 +14,18 @@
 <title>Mi GPS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="clave.js?v=2"></script>
 <style>
-.leaflet-container{background:#1b2029}
-.leaflet-control-attribution{font-size:10px;background:#0e1116aa!important;color:#9aa3b2}
-.leaflet-control-attribution a{color:#9aa3b2}
+.maplibregl-map{background:#1b2029}
+.maplibregl-ctrl-attrib{font-size:10px;background:#0e1116aa!important;color:#9aa3b2}
+.maplibregl-ctrl-attrib a{color:#9aa3b2}
+#btnNorth{top:calc(130px + env(safe-area-inset-top));display:none}
+#btnNorth.on{display:grid}
+#btnNorth svg{transition:none}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--mute);font-size:13px;margin-top:8px}
+.legend i{display:inline-block;width:18px;height:5px;border-radius:3px;vertical-align:middle;margin-right:5px}
 :root{--bg:#0e1116;--panel:#171b22;--line:#262c36;--ink:#f2f4f7;--mute:#9aa3b2;--blue:#0a5cff;--green:#00a05a;--amber:#ffb400;--red:#e6261f}
 *{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.45 Figtree,system-ui,sans-serif;overflow:hidden}
@@ -56,7 +61,7 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .route .sub{color:var(--mute);font-size:14px;grid-column:1/-1}
 .tag{display:inline-block;font-size:13px;font-weight:700;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:middle;color:#000}
 .meArrow{width:44px;height:44px;display:grid;place-items:center}
-.meArrow svg{width:40px;height:40px;transition:transform .4s ease;filter:drop-shadow(0 2px 4px #000a)}
+.meArrow svg{width:40px;height:40px;filter:drop-shadow(0 2px 4px #000a)}
 .limit{flex:none;width:52px;height:52px;border-radius:50%;background:#fff;border:6px solid var(--red);color:#111;display:grid;place-items:center;font-weight:800;font-size:19px}
 .limit.none{display:none}
 .speed{flex:none;text-align:center;min-width:52px}
@@ -101,6 +106,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
 <button class="fab" id="btnMe" aria-label="Centrar en mi ubicación">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
 </button>
+<button class="fab" id="btnNorth" aria-label="Volver al norte"><svg id="northIc" width="26" height="26" viewBox="0 0 24 24"><path d="M12 2 L16 12 L12 10 L8 12 Z" fill="#e6261f"/><path d="M12 22 L8 12 L12 14 L16 12 Z" fill="#9aa3b2"/></svg></button>
 <button class="fab" id="btnCfg" aria-label="Ajustes">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
 </button>
@@ -113,6 +119,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   </form>
   <div class="sugg" id="sugg" role="listbox"></div>
   <div class="chips" id="chips"></div>
+  <div class="legend"><span><i style="background:#2ecc71"></i>Fluido</span><span><i style="background:#ff9f1a"></i>Moderado</span><span><i style="background:#e6261f"></i>Pesado</span><span><i style="background:#7a0000"></i>Detenido</span><span><i style="background:#e6261f;border-radius:50%;width:10px;height:10px"></i>Radar</span><span>⛔ Corte</span></div>
   <div class="status" id="status">Buscando tu ubicación…</div>
   <div class="routes" id="routes"></div>
   <button class="btn pri startNav hidden" id="go" type="button">▶ Iniciar navegación</button>
@@ -168,7 +175,7 @@ let favs = store.get('favs', [
   {name:'Facu', addr:'Universidad de Palermo, Mario Bravo 1050, CABA'},
   {name:'Laburo', addr:''}
 ]);
-let map, meMarker, traffic, me = null, lines = [], routes = [], sel = 0, lastDest = '', refreshTimer;
+let map, meMarker, me = null, routes = [], sel = 0, lastDest = '', refreshTimer;
 
 const setStatus = t => $('#status').textContent = t;
 
@@ -273,16 +280,47 @@ const fmtMin = s => { const m = Math.round(s/60); return m < 60 ? `${m} min` : `
 const fmtKm = m => m < 1000 ? `${m} m` : `${(m/1000).toFixed(1).replace('.', ',')} km`;
 const fmtHora = d => d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
 
+const ll2 = a => [a[1], a[0]];
 function initMap(){
-  map = L.map('map', {zoomControl:false, attributionControl:true}).setView([-34.6037, -58.3816], 13);
-  L.tileLayer(`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${encodeURIComponent(apiKey)}&language=es-ES`, {
-    maxZoom:20, attribution:'© TomTom'
-  }).addTo(map);
-  traffic = L.tileLayer(`${T}/traffic/map/4/tile/flow/relative0-dark/{z}/{x}/{y}.png?key=${encodeURIComponent(apiKey)}`, {
-    maxZoom:20, opacity:.9
-  }).addTo(map);
-  startGps();
+  const k = encodeURIComponent(apiKey);
+  map = new maplibregl.Map({
+    container:'map', center:[-58.3816, -34.6037], zoom:13, maxPitch:65,
+    attributionControl:{compact:true},
+    style:{version:8, sources:{
+      base:{type:'raster', tiles:[`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom · Radares © OpenStreetMap'},
+      flow:{type:'raster', tiles:[`${T}/traffic/map/4/tile/flow/relative0-dark/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22},
+      inc:{type:'raster', tiles:[`${T}/traffic/map/4/tile/incidents/night/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22}
+    }, layers:[
+      {id:'base', type:'raster', source:'base'},
+      {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.95}},
+      {id:'inc', type:'raster', source:'inc'}
+    ]}
+  });
+  map.touchZoomRotate.enableRotation();
+  map.on('load', () => {
+    map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#6b7486', 'line-width':6, 'line-opacity':.75}});
+    map.addLayer({id:'route-casing', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#ffffff', 'line-width':11, 'line-opacity':.9}});
+    map.addLayer({id:'route-main', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#0a5cff', 'line-width':7}});
+    map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
+    startGps();
+    loadAreaCams();
+  });
+  map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
+  map.on('rotate', updateNorth);
+  map.on('pitch', updateNorth);
+  map.on('dragstart', () => { if (nav) nav.follow = false; });
 }
+function updateNorth(){
+  const b = map.getBearing(), p = map.getPitch();
+  $('#btnNorth').classList.toggle('on', Math.abs(b) > 1 || p > 1);
+  $('#northIc').style.transform = `rotate(${-b}deg)`;
+}
+$('#btnNorth').onclick = () => { if (nav) nav.headUp = false; map.easeTo({bearing:0, pitch:0, duration:500}); };
+function moveTo(ll, zoom){ map.easeTo({center:ll2(ll), zoom, duration:600}); }
 
 function startGps(){
   if (!navigator.geolocation){ setStatus('Este navegador no da ubicación.'); return; }
@@ -297,11 +335,14 @@ function startGps(){
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
     if (!nav) setMe([me.lat, me.lng], myHeading);
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
-    if (first){ map.setView([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
+    if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
   {enableHighAccuracy:true, maximumAge:5000});
 }
-$('#btnMe').onclick = () => { if (me && map) map.setView([me.lat, me.lng], 16); };
+$('#btnMe').onclick = () => {
+  if (nav){ nav.follow = true; nav.headUp = true; if (nav.last) follow(nav.last.pt, nav.last.deg); return; }
+  if (me && map) moveTo([me.lat, me.lng], 16);
+};
 
 /* ---------- Rutas con tráfico (TomTom Routing) ---------- */
 async function geocode(q){
@@ -354,21 +395,19 @@ async function route(dest, pos){
   }
 }
 
-function clearRoutes(){ lines.forEach(l => l.remove()); lines = []; routes = []; $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
+function setRouteLines(){
+  const src = map && map.getSource('routes'); if (!src) return;
+  src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
+    geometry:{type:'LineString', coordinates:r.path.map(ll2)}}))});
+}
+function clearRoutes(){ routes = []; setRouteLines(); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
 
 function draw(){
-  lines.forEach(l => l.remove());
-  const order = routes.map((_, i) => i).sort((a, b) => (a === sel) - (b === sel));
-  lines = [];
-  order.forEach(i => {
-    const l = L.polyline(routes[i].path, {
-      color:i === sel ? '#0a5cff' : '#6b7486', opacity:i === sel ? .95 : .7, weight:i === sel ? 8 : 6
-    }).addTo(map);
-    l.on('click', () => { sel = i; draw(); });
-    lines.push(l);
-  });
+  setRouteLines();
   if (nav) return;
-  map.fitBounds(L.latLngBounds(routes[sel].path), {paddingTopLeft:[30, 100], paddingBottomRight:[70, Math.round(innerHeight * .45)]});
+  const b = new maplibregl.LngLatBounds();
+  routes[sel].path.forEach(p => b.extend(ll2(p)));
+  map.fitBounds(b, {padding:{top:100, left:30, right:70, bottom:Math.min(Math.round(innerHeight * .45), innerHeight - 200)}, bearing:map.getBearing(), duration:600});
 
   $('#routes').innerHTML = routes.map((r, i) => {
     const mins = Math.round(r.delay / 60);
@@ -395,31 +434,69 @@ function hav(a, b){
   const s = Math.sin(dLat/2) ** 2 + Math.cos(a[0]*k) * Math.cos(b[0]*k) * Math.sin(dLng/2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
 }
-let myHeading = 0, lastFix = null, rotDeg = 0, mySpeed = 0, camLayer = null;
+let myHeading = 0, lastFix = null, mySpeed = 0;
 
 /* Radares: cámaras de velocidad de OpenStreetMap (Overpass) */
+const camStore = new Map(), camMarkers = new Map(), camTiles = new Set();
+let camTimer;
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+async function overpass(bb){
+  const q = `[out:json][timeout:25];(node["highway"="speed_camera"](${bb});node["enforcement"="maxspeed"](${bb});node["speed_camera"](${bb}););out;`;
+  for (const url of OVERPASS){
+    try{
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+      const res = await fetch(url + '?data=' + encodeURIComponent(q), {signal:ctl.signal});
+      clearTimeout(t);
+      if (!res.ok) continue;
+      const d = await res.json();
+      return d.elements || [];
+    }catch{}
+  }
+  return null;
+}
+function addCams(list){
+  for (const n of list){
+    if (camStore.has(n.id)) continue;
+    const c = {id:n.id, pt:[n.lat, n.lon], max:parseInt(n.tags?.maxspeed) || null};
+    camStore.set(n.id, c);
+    const el = document.createElement('div');
+    el.className = 'camIcon';
+    el.title = 'Radar' + (c.max ? ' ' + c.max + ' km/h' : '');
+    el.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5" fill="#e6261f"/></svg>';
+    camMarkers.set(n.id, new maplibregl.Marker({element:el}).setLngLat([n.lon, n.lat]).addTo(map));
+  }
+}
+async function loadAreaCams(){
+  if (!map || map.getZoom() < 10.5) return;
+  const b = map.getBounds(), g = .1;
+  const tiles = [];
+  for (let la = Math.floor(b.getSouth()/g); la <= Math.floor(b.getNorth()/g); la++)
+    for (let ln = Math.floor(b.getWest()/g); ln <= Math.floor(b.getEast()/g); ln++)
+      if (!camTiles.has(la + ':' + ln)) tiles.push([la, ln]);
+  if (!tiles.length || tiles.length > 30) return;
+  tiles.forEach(([la, ln]) => camTiles.add(la + ':' + ln));
+  const lats = tiles.map(t => t[0]), lngs = tiles.map(t => t[1]);
+  const bb = [Math.min(...lats)*g, Math.min(...lngs)*g, (Math.max(...lats)+1)*g, (Math.max(...lngs)+1)*g].map(v => v.toFixed(4)).join(',');
+  const list = await overpass(bb);
+  if (list === null){ tiles.forEach(([la, ln]) => camTiles.delete(la + ':' + ln)); return; }
+  addCams(list);
+  window.__camCount = camStore.size;
+}
 async function loadCams(r){
-  if (!camLayer) camLayer = L.layerGroup().addTo(map);
-  camLayer.clearLayers();
   r.cams = [];
   const lats = r.path.map(p => p[0]), lngs = r.path.map(p => p[1]);
-  const pad = .005, bb = [Math.min(...lats)-pad, Math.min(...lngs)-pad, Math.max(...lats)+pad, Math.max(...lngs)+pad].join(',');
-  const q = `[out:json][timeout:20];(node["highway"="speed_camera"](${bb});node["enforcement"="maxspeed"](${bb}););out;`;
-  try{
-    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
-    const d = await res.json();
-    const cams = [];
-    for (const n of d.elements || []){
-      const loc = locate(r, [n.lat, n.lon], 0, true);
-      if (loc.off > 35) continue;
-      const max = parseInt(n.tags?.maxspeed) || null;
-      cams.push({along:loc.along, max, pt:[n.lat, n.lon]});
-    }
-    cams.sort((a, b) => a.along - b.along);
-    r.cams = cams;
-    cams.forEach(c => L.marker(c.pt, {interactive:false, icon:L.divIcon({className:'', iconSize:[26, 26], iconAnchor:[13, 13],
-      html:'<div class="camIcon"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5" fill="#e6261f"/></svg></div>'})}).addTo(camLayer));
-  }catch{}
+  const pad = .005, bb = [Math.min(...lats)-pad, Math.min(...lngs)-pad, Math.max(...lats)+pad, Math.max(...lngs)+pad].map(v => v.toFixed(5)).join(',');
+  const list = await overpass(bb);
+  if (list) addCams(list);
+  const cams = [];
+  for (const c of camStore.values()){
+    const loc = locate(r, c.pt, 0, true);
+    if (loc.off > 35) continue;
+    cams.push({along:loc.along, max:c.max, pt:c.pt});
+  }
+  cams.sort((a, b) => a.along - b.along);
+  r.cams = cams;
+  window.__routeCams = cams.length;
 }
 function bearing(a, b){
   const k = Math.PI / 180, y = Math.sin((b[1]-a[1])*k) * Math.cos(b[0]*k);
@@ -427,14 +504,17 @@ function bearing(a, b){
   return (Math.atan2(y, x) / k + 360) % 360;
 }
 function setMe(ll, deg){
+  if (!map) return;
   if (!meMarker){
-    meMarker = L.marker(ll, {zIndexOffset:1000, interactive:false, icon:L.divIcon({className:'', iconSize:[44, 44], iconAnchor:[22, 22],
-      html:'<div class="meArrow"><svg viewBox="0 0 40 40"><path d="M20 3 L34 35 L20 27 L6 35 Z" fill="#0a5cff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg></div>'})}).addTo(map);
-  } else meMarker.setLatLng(ll);
-  let d = ((deg - rotDeg) % 360 + 540) % 360 - 180;
-  rotDeg += d;
-  const svg = meMarker.getElement()?.querySelector('svg');
-  if (svg) svg.style.transform = `rotate(${rotDeg}deg)`;
+    const el = document.createElement('div');
+    el.className = 'meArrow';
+    el.innerHTML = '<svg viewBox="0 0 40 40"><path d="M20 3 L34 35 L20 27 L6 35 Z" fill="#0a5cff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
+    meMarker = new maplibregl.Marker({element:el, rotationAlignment:'map', pitchAlignment:'map'}).setLngLat(ll2(ll)).addTo(map);
+  } else meMarker.setLngLat(ll2(ll));
+  meMarker.setRotation(deg || 0);
+}
+function follow(pt, deg){
+  map.easeTo({center:ll2(pt), zoom:17.2, pitch:50, bearing:nav && nav.headUp ? deg : map.getBearing(), duration:650, offset:[0, Math.round(innerHeight * .18)]});
 }
 const ANG = {TURN_LEFT:-90, TURN_RIGHT:90, SHARP_LEFT:-135, SHARP_RIGHT:135, BEAR_LEFT:-45, BEAR_RIGHT:45,
   KEEP_LEFT:-30, KEEP_RIGHT:30, MAKE_UTURN:-180, TRY_MAKING_UTURN:-180, ENTER_MOTORWAY:30, ENTER_FREEWAY:30,
@@ -542,7 +622,10 @@ function navUpdate(p){
 
   const A = r.path[loc.i], B = r.path[loc.i + 1] || A;
   setMe(pt, A === B ? myHeading : bearing(A, B));
-  map.setView(pt, 17, {animate:true});
+  const deg = A === B ? myHeading : bearing(A, B);
+  myHeading = deg;
+  nav.last = {pt, deg};
+  if (nav.follow) follow(pt, deg);
 }
 
 function setNavRoute(r){
@@ -561,7 +644,7 @@ async function reroute(p){
 
 async function startNav(){
   if (!routes[sel] || !me) return;
-  nav = {r:routes[sel], idx:0, spoken:{}, offCount:0, sim:null, rerouting:false, arrived:false};
+  nav = {r:routes[sel], idx:0, spoken:{}, offCount:0, sim:null, rerouting:false, arrived:false, follow:true, headUp:true};
   routes = [nav.r]; sel = 0;
   loadCams(nav.r);
   document.body.classList.add('nav');
@@ -579,7 +662,7 @@ async function startNav(){
 function stopNav(){
   if (!nav) return;
   clearInterval(nav.timer); clearInterval(nav.sim);
-  camLayer.clearLayers(); $('#navRadar').classList.remove('on');
+  $('#navRadar').classList.remove('on');
   nav = null;
   document.body.classList.remove('nav');
   $('#navSim').textContent = 'Simular';
@@ -588,7 +671,7 @@ function stopNav(){
   wakeLock = null;
   clearRoutes();
   setStatus('Navegación terminada. Elegí otro destino.');
-  if (me){ setMe([me.lat, me.lng], myHeading); map.setView([me.lat, me.lng], 15); }
+  if (me){ setMe([me.lat, me.lng], myHeading); map.easeTo({center:[me.lng, me.lat], zoom:15, pitch:0, bearing:0, offset:[0, 0], duration:700}); }
 }
 
 function toggleSim(){
@@ -622,7 +705,7 @@ renderChips();
 if (!apiKey){
   setStatus('Primero cargá tu clave de TomTom en Ajustes (⚙).');
   openCfg();
-} else if (typeof L === 'undefined'){
+} else if (typeof maplibregl === 'undefined'){
   setStatus('No cargó el mapa. Revisá tu conexión.');
 } else {
   initMap();
