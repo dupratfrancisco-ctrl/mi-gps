@@ -355,7 +355,16 @@ $('#btnMe').onclick = () => {
 };
 
 /* ---------- Velocímetro y límite sin navegación ---------- */
-let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0;
+let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0, driveStreet = '';
+/* Corrige el dato de TomTom con la ley de tránsito (Ley 24.449 / CABA): calles 40, avenidas 60.
+   Si TomTom marca un límite menor en una calle (zona escolar, 20 o 30), se respeta. */
+function fixLimit(tt, street){
+  const s = (street || '').toLowerCase().trim();
+  if (/^(autopista|au\b|au\.|acceso|ruta|autov[ií]a|camino)/.test(s)) return tt || null;
+  if (/^(avenida|av\.|av\b|avda)/.test(s)) return tt && tt > 60 ? tt : 60;
+  if (!s) return tt || null;
+  return tt && tt <= 40 ? tt : 40;
+}
 async function driveUpdate(){
   const spd = Math.max(0, Math.round(mySpeed));
   $('#driveSpeed').textContent = spd;
@@ -365,9 +374,11 @@ async function driveUpdate(){
     try{
       const r = await fetch(`${T}/search/2/reverseGeocode/${me.lat},${me.lng}.json?key=${encodeURIComponent(apiKey)}&returnSpeedLimit=true&radius=40`);
       const d = await r.json();
-      const sl = d.addresses?.[0]?.address?.speedLimit;
+      const ad = d.addresses?.[0]?.address || {};
+      const sl = ad.speedLimit;
+      driveStreet = ad.street || ad.streetName || '';
       const v = sl ? parseFloat(sl) * (/MPH/i.test(sl) ? 1.609 : 1) : NaN;
-      driveLim = isNaN(v) ? null : Math.round(v);
+      driveLim = fixLimit(isNaN(v) ? null : Math.round(v), driveStreet);
     }catch{}
   }
   const el = $('#driveLimit');
@@ -404,7 +415,7 @@ async function fetchRoutes(from, to, alts){
       limits:(x.sections || []).filter(z => z.sectionType === 'SPEED_LIMIT' && z.maxSpeedLimitInKmh).map(z => ({s:z.startPointIndex, e:z.endPointIndex, v:z.maxSpeedLimitInKmh})),
       cams:[],
       instr:(x.guidance?.instructions || []).map(g => ({
-        off:g.routeOffsetInMeters, msg:g.message || '', man:g.maneuver || '', pt:[g.point.latitude, g.point.longitude]
+        off:g.routeOffsetInMeters, msg:g.message || '', man:g.maneuver || '', pt:[g.point.latitude, g.point.longitude], pi:g.pointIndex, street:g.street || ''
       }))
     };
   }).sort((a, b) => a.dur - b.dur);
@@ -657,7 +668,11 @@ function navUpdate(p){
   $('#navArrow').style.transform = `rotate(${ANG[g.man] || 0}deg)`;
 
   // límite de velocidad y velocidad actual
-  const lim = r.limits.find(z => loc.i >= z.s && loc.i < z.e);
+  const limTT = r.limits.find(z => loc.i >= z.s && loc.i < z.e);
+  let curStreet = '';
+  for (const g2 of r.instr){ if (g2.pi != null && g2.pi <= loc.i){ if (g2.street) curStreet = g2.street; } else if (g2.pi > loc.i) break; }
+  const limV = fixLimit(limTT ? limTT.v : null, curStreet);
+  const lim = limV ? {v:limV} : null;
   const limEl = $('#navLimit');
   if (lim){ limEl.textContent = lim.v; limEl.classList.remove('none'); } else limEl.classList.add('none');
   const spd = Math.round(nav.sim ? 72 : mySpeed);
