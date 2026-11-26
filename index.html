@@ -48,6 +48,15 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .tag{display:inline-block;font-size:13px;font-weight:700;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:middle;color:#000}
 .meArrow{width:44px;height:44px;display:grid;place-items:center}
 .meArrow svg{width:40px;height:40px;transition:transform .4s ease;filter:drop-shadow(0 2px 4px #000a)}
+.limit{flex:none;width:52px;height:52px;border-radius:50%;background:#fff;border:6px solid var(--red);color:#111;display:grid;place-items:center;font-weight:800;font-size:19px}
+.limit.none{display:none}
+.speed{flex:none;text-align:center;min-width:52px}
+.speed b{display:block;font-size:24px;line-height:1}
+.speed small{color:var(--mute);font-size:12px}
+.speed.over b{color:var(--red)}
+.radar{position:fixed;left:10px;z-index:6;top:calc(130px + env(safe-area-inset-top));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
+body.nav .radar.on{display:block}
+.camIcon{width:26px;height:26px;border-radius:50%;background:var(--red);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px #0008}
 .startNav{width:100%;margin-top:10px;min-height:54px;font-size:18px;font-weight:800}
 body.nav .sheet,body.nav #btnCfg{display:none}
 .navTop,.navBot{position:fixed;left:10px;right:10px;z-index:6;display:none}
@@ -107,7 +116,10 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
     <div class="then" id="navThen"></div>
   </div>
 </div>
+<div class="radar" id="navRadar">RADAR</div>
 <div class="navBot" id="navBot">
+  <div class="limit none" id="navLimit" aria-label="Límite de velocidad"></div>
+  <div class="speed" id="navSpeedBox"><b id="navSpeed">0</b><small>km/h</small></div>
   <div class="grow">
     <div class="big" id="navEta">—</div>
     <div class="small" id="navRest">—</div>
@@ -215,6 +227,7 @@ function startGps(){
     if (nav && nav.sim) return;
     me = {lat:p.coords.latitude, lng:p.coords.longitude};
     const h = p.coords.heading;
+    mySpeed = p.coords.speed != null && !isNaN(p.coords.speed) ? p.coords.speed * 3.6 : mySpeed;
     if (h != null && !isNaN(h) && (p.coords.speed || 0) > 0.7) myHeading = h;
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
@@ -237,7 +250,7 @@ async function geocode(q){
 }
 
 async function fetchRoutes(from, to, alts){
-  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&language=es-ES`;
+  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES`;
   const r = await fetch(u); const data = await r.json();
   if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
   if (!data.routes?.length) throw new Error('no encontré ruta a ese destino');
@@ -250,6 +263,8 @@ async function fetchRoutes(from, to, alts){
       delay:x.summary.trafficDelayInSeconds || 0,
       dist:x.summary.lengthInMeters,
       path, cum,
+      limits:(x.sections || []).filter(z => z.sectionType === 'SPEED_LIMIT' && z.maxSpeedLimitInKmh).map(z => ({s:z.startPointIndex, e:z.endPointIndex, v:z.maxSpeedLimitInKmh})),
+      cams:[],
       instr:(x.guidance?.instructions || []).map(g => ({
         off:g.routeOffsetInMeters, msg:g.message || '', man:g.maneuver || '', pt:[g.point.latitude, g.point.longitude]
       }))
@@ -315,7 +330,32 @@ function hav(a, b){
   const s = Math.sin(dLat/2) ** 2 + Math.cos(a[0]*k) * Math.cos(b[0]*k) * Math.sin(dLng/2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
 }
-let myHeading = 0, lastFix = null, rotDeg = 0;
+let myHeading = 0, lastFix = null, rotDeg = 0, mySpeed = 0, camLayer = null;
+
+/* Radares: cámaras de velocidad de OpenStreetMap (Overpass) */
+async function loadCams(r){
+  if (!camLayer) camLayer = L.layerGroup().addTo(map);
+  camLayer.clearLayers();
+  r.cams = [];
+  const lats = r.path.map(p => p[0]), lngs = r.path.map(p => p[1]);
+  const pad = .005, bb = [Math.min(...lats)-pad, Math.min(...lngs)-pad, Math.max(...lats)+pad, Math.max(...lngs)+pad].join(',');
+  const q = `[out:json][timeout:20];(node["highway"="speed_camera"](${bb});node["enforcement"="maxspeed"](${bb}););out;`;
+  try{
+    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+    const d = await res.json();
+    const cams = [];
+    for (const n of d.elements || []){
+      const loc = locate(r, [n.lat, n.lon], 0, true);
+      if (loc.off > 35) continue;
+      const max = parseInt(n.tags?.maxspeed) || null;
+      cams.push({along:loc.along, max, pt:[n.lat, n.lon]});
+    }
+    cams.sort((a, b) => a.along - b.along);
+    r.cams = cams;
+    cams.forEach(c => L.marker(c.pt, {interactive:false, icon:L.divIcon({className:'', iconSize:[26, 26], iconAnchor:[13, 13],
+      html:'<div class="camIcon"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5" fill="#e6261f"/></svg></div>'})}).addTo(camLayer));
+  }catch{}
+}
 function bearing(a, b){
   const k = Math.PI / 180, y = Math.sin((b[1]-a[1])*k) * Math.cos(b[0]*k);
   const x = Math.cos(a[0]*k) * Math.sin(b[0]*k) - Math.sin(a[0]*k) * Math.cos(b[0]*k) * Math.cos((b[1]-a[1])*k);
@@ -350,9 +390,9 @@ function say(t){
   }catch{}
 }
 
-function locate(r, p, from){
+function locate(r, p, from, all){
   const k = Math.PI / 180, kx = 111320 * Math.cos(p[0]*k), ky = 110540;
-  const a0 = Math.max(0, from - 10), a1 = Math.min(r.path.length - 2, from + 200);
+  const a0 = all ? 0 : Math.max(0, from - 10), a1 = all ? r.path.length - 2 : Math.min(r.path.length - 2, from + 200);
   let best = {d:Infinity, i:a0, t:0};
   for (let i = a0; i <= a1; i++){
     const A = r.path[i], B = r.path[i+1];
@@ -405,6 +445,28 @@ function navUpdate(p){
   $('#navThen').textContent = n && n.off - g.off < 250 ? 'Después: ' + n.msg : '';
   $('#navArrow').style.transform = `rotate(${ANG[g.man] || 0}deg)`;
 
+  // límite de velocidad y velocidad actual
+  const lim = r.limits.find(z => loc.i >= z.s && loc.i < z.e);
+  const limEl = $('#navLimit');
+  if (lim){ limEl.textContent = lim.v; limEl.classList.remove('none'); } else limEl.classList.add('none');
+  const spd = Math.round(nav.sim ? 72 : mySpeed);
+  $('#navSpeed').textContent = spd;
+  const over = lim && spd > lim.v + 3;
+  $('#navSpeedBox').classList.toggle('over', !!over);
+  if (over && Date.now() - (nav.overSaid || 0) > 30000){ say(`Cuidado, el límite es ${lim.v}`); nav.overSaid = Date.now(); }
+
+  // radares
+  const cam = r.cams.find(c => c.along > loc.along - 10);
+  const radarEl = $('#navRadar');
+  if (cam){
+    const dc = (cam.along - loc.along) * scale;
+    if (dc < 600){
+      radarEl.textContent = `RADAR a ${fmtDist(dc)}${cam.max ? ' · ' + cam.max + ' km/h' : ''}`;
+      radarEl.classList.add('on');
+      if (!cam.said && dc > 60){ cam.said = true; say(`Radar a ${sayDist(dc)}${cam.max ? ', máxima ' + cam.max : ''}`); }
+    } else radarEl.classList.remove('on');
+  } else radarEl.classList.remove('on');
+
   const secs = r.dur * rest / r.dist;
   $('#navEta').textContent = 'Llegás ' + fmtHora(new Date(Date.now() + secs * 1000));
   $('#navRest').textContent = `${fmtMin(secs)} · ${fmtKm(Math.round(rest))}`;
@@ -420,6 +482,7 @@ function navUpdate(p){
 
 function setNavRoute(r){
   nav.r = r; nav.idx = 0; nav.spoken = {}; nav.offCount = 0;
+  loadCams(r);
   routes = [r]; sel = 0; draw();
 }
 
@@ -435,6 +498,7 @@ async function startNav(){
   if (!routes[sel] || !me) return;
   nav = {r:routes[sel], idx:0, spoken:{}, offCount:0, sim:null, rerouting:false, arrived:false};
   routes = [nav.r]; sel = 0;
+  loadCams(nav.r);
   document.body.classList.add('nav');
   draw();
   const first = nav.r.instr.find(g => g.off > 5);
@@ -450,6 +514,7 @@ async function startNav(){
 function stopNav(){
   if (!nav) return;
   clearInterval(nav.timer); clearInterval(nav.sim);
+  camLayer.clearLayers(); $('#navRadar').classList.remove('on');
   nav = null;
   document.body.classList.remove('nav');
   $('#navSim').textContent = 'Simular';
