@@ -221,6 +221,8 @@ $('#searchForm').onsubmit = e => {
 let suggs = [], suggTimer, suggSeq = 0;
 const PIN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>';
 const SHOP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 9h16l-1 11H5zM8 9V7a4 4 0 0 1 8 0v2"/></svg>';
+const CAT = {'cafe':'Café','café':'Café','restaurant':'Restaurante','fast food':'Comida rápida','pub':'Bar','bar':'Bar','petrol station':'Estación de servicio','gas station':'Estación de servicio','parking garage':'Estacionamiento','open parking area':'Estacionamiento','hospital':'Hospital','pharmacy':'Farmacia','supermarkets & hypermarkets':'Supermercado','shop':'Comercio','hotel':'Hotel','college/university':'Universidad','school':'Escuela','bank':'Banco','atm':'Cajero','shopping center':'Shopping','stadium':'Estadio','park':'Parque','gym':'Gimnasio','bakery':'Panadería','ice cream parlor':'Heladería','pizza':'Pizzería','latin american':'Restaurante','grill':'Parrilla','steak house':'Parrilla','railroad station':'Estación de tren','metro station':'Estación de subte','bus stop':'Parada de colectivo','airport':'Aeropuerto','clothing shop':'Ropa','doctor':'Médico','dentist':'Dentista','church':'Iglesia','museum':'Museo','cinema':'Cine','theater':'Teatro'};
+const catEs = c => { const k = c.toLowerCase(); return CAT[k] || (c ? c[0].toUpperCase() + c.slice(1) : ''); };
 function hideSugg(){ suggs = []; $('#sugg').innerHTML = ''; }
 async function loadSugg(q){
   const seq = ++suggSeq;
@@ -236,7 +238,7 @@ async function loadSugg(q){
       return {
         name: poi || street || a.freeformAddress || q,
         addr: poi ? (a.freeformAddress || '') : [a.municipalitySubdivision || a.municipality, a.countrySubdivision].filter(Boolean).join(', '),
-        cat: poi ? (x.poi.categories?.[0] || '') : '',
+        cat: poi ? catEs(x.poi.categories?.[0] || '') : '',
         dist: x.dist, isPoi: !!poi,
         pos: {lat:x.position.lat, lng:x.position.lon}
       };
