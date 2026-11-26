@@ -16,7 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="clave.js"></script>
+<script src="clave.js?v=2"></script>
 <style>
 .leaflet-container{background:#1b2029}
 .leaflet-control-attribution{font-size:10px;background:#0e1116aa!important;color:#9aa3b2}
@@ -138,7 +138,7 @@ const store = {
 };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-let apiKey = store.get('key', '') || (window.TOMTOM_KEY || '').trim();
+let apiKey = (window.TOMTOM_KEY || '').trim() || store.get('key', '');
 let favs = store.get('favs', [
   {name:'Casa', addr:''},
   {name:'Facu', addr:'Universidad de Palermo, Mario Bravo 1050, CABA'},
