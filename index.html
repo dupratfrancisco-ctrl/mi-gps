@@ -242,7 +242,7 @@ async function loadSugg(q){
   const seq = ++suggSeq;
   const bias = me ? `&lat=${me.lat}&lon=${me.lng}` : '&lat=-34.6037&lon=-58.3816';
   try{
-    const r = await fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&typeahead=true&limit=8&countrySet=AR&language=es-419${bias}`);
+    const r = await fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&typeahead=true&limit=8&language=es-419${bias}`);
     const d = await r.json();
     if (seq !== suggSeq) return;
     suggs = (d.results || []).map(x => {
@@ -354,11 +354,94 @@ $('#btnMe').onclick = () => {
   if (me && map) moveTo([me.lat, me.lng], 16);
 };
 
+/* ---------- Límites de velocidad de OpenStreetMap (todo el mundo) ---------- */
+const MPH = new Set(['US', 'GB', 'LR', 'MM', 'PR', 'VI', 'GU', 'AS', 'MP', 'BS', 'BZ', 'KY', 'VG', 'FK', 'AG', 'DM', 'GD', 'LC', 'VC', 'KN', 'MS', 'TC', 'AI', 'WS']);
+let useMph = false;
+function setCountry(cc){
+  curCountry = cc;
+  useMph = MPH.has(cc);
+  document.querySelectorAll('.speed small').forEach(e => e.textContent = useMph ? 'mph' : 'km/h');
+}
+const U = kmh => useMph ? Math.round(kmh / 1.609) : Math.round(kmh);
+const osmTiles = new Map();   // "la:ln" -> {ways:[...]} | 'loading' | {fail:time}
+let osmBusy = 0;
+const OG = .01;
+function parseMax(v){
+  if (!v) return null;
+  const m = String(v).trim().match(/^(\d+(?:\.\d+)?)\s*(mph)?/i);
+  if (!m) return null;
+  return Math.round(+m[1] * (m[2] ? 1.609 : 1));
+}
+async function osmLoadTile(la, ln){
+  const key = la + ':' + ln, cur = osmTiles.get(key);
+  if (cur === 'loading' || (cur && cur.ways) || (cur && cur.fail && Date.now() - cur.fail < 60000)) return;
+  if (osmBusy >= 2) return;
+  osmTiles.set(key, 'loading'); osmBusy++;
+  const bb = [la*OG, ln*OG, (la+1)*OG, (ln+1)*OG].map(v => v.toFixed(4)).join(',');
+  const q = `[out:json][timeout:25];way(${bb})["highway"]["maxspeed"];out tags geom;`;
+  let list = null;
+  for (const url of OVERPASS){
+    try{
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
+      const res = await fetch(url + '?data=' + encodeURIComponent(q), {signal:ctl.signal});
+      clearTimeout(t);
+      if (!res.ok) continue;
+      list = (await res.json()).elements || [];
+      break;
+    }catch{}
+  }
+  osmBusy--;
+  if (!list){ osmTiles.set(key, {fail:Date.now()}); return; }
+  const ways = [];
+  for (const w of list){
+    const v = parseMax(w.tags?.maxspeed);
+    if (!v || !w.geometry) continue;
+    ways.push({v, pts:w.geometry.map(g => [g.lat, g.lon])});
+  }
+  osmTiles.set(key, {ways});
+  try{ sessionStorage.setItem('osm:' + key, JSON.stringify(ways)); }catch{}
+}
+function osmPrefetch(lat, lng){
+  const la = Math.floor(lat / OG), ln = Math.floor(lng / OG);
+  for (const [a, b] of [[0,0],[0,1],[0,-1],[1,0],[-1,0]]){
+    const key = (la+a) + ':' + (ln+b);
+    if (!osmTiles.has(key)){
+      try{ const c = sessionStorage.getItem('osm:' + key); if (c){ osmTiles.set(key, {ways:JSON.parse(c)}); continue; } }catch{}
+    }
+    if (a === 0 && b === 0) osmLoadTile(la+a, ln+b); else setTimeout(() => osmLoadTile(la+a, ln+b), 1500);
+  }
+}
+function osmLimitAt(p, heading){
+  const la = Math.floor(p[0] / OG), ln = Math.floor(p[1] / OG);
+  const k = Math.PI / 180, kx = 111320 * Math.cos(p[0]*k), ky = 110540;
+  let best = null, bestScore = 22;
+  for (const [a, b] of [[0,0],[0,1],[0,-1],[1,0],[-1,0]]){
+    const t = osmTiles.get((la+a) + ':' + (ln+b));
+    if (!t || !t.ways) continue;
+    for (const w of t.ways){
+      for (let i = 0; i < w.pts.length - 1; i++){
+        const A = w.pts[i], B = w.pts[i+1];
+        const ax = (A[1]-p[1])*kx, ay = (A[0]-p[0])*ky, dx = (B[1]-A[1])*kx, dy = (B[0]-A[0])*ky;
+        const L2 = dx*dx + dy*dy; if (!L2) continue;
+        const tt = Math.max(0, Math.min(1, -(ax*dx + ay*dy) / L2));
+        const d = Math.hypot(ax + tt*dx, ay + tt*dy);
+        if (d > 22) continue;
+        let diff = Math.abs(((bearing(A, B) - heading) % 180 + 180) % 180);
+        diff = Math.min(diff, 180 - diff);
+        const score = d + diff / 4;
+        if (score < bestScore){ bestScore = score; best = w.v; }
+      }
+    }
+  }
+  return best;
+}
+
 /* ---------- Velocímetro y límite sin navegación ---------- */
-let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0, driveStreet = '';
+let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0, driveStreet = '', curCountry = 'AR', ttLim = null;
 /* Corrige el dato de TomTom con la ley de tránsito (Ley 24.449 / CABA): calles 40, avenidas 60.
    Si TomTom marca un límite menor en una calle (zona escolar, 20 o 30), se respeta. */
 function fixLimit(tt, street){
+  if (curCountry !== 'AR') return tt || null;
   const s = (street || '').toLowerCase().trim();
   if (/^(autopista|au\b|au\.|acceso|ruta|autov[ií]a|camino)/.test(s)) return tt || null;
   if (/^(avenida|av\.|av\b|avda)/.test(s)) return tt && tt > 60 ? tt : 60;
@@ -367,7 +450,7 @@ function fixLimit(tt, street){
 }
 async function driveUpdate(){
   const spd = Math.max(0, Math.round(mySpeed));
-  $('#driveSpeed').textContent = spd;
+  $('#driveSpeed').textContent = U(spd);
   const now = Date.now();
   if (!driveAt || hav([driveAt.lat, driveAt.lng], [me.lat, me.lng]) > 120 || now - driveT > 20000){
     driveAt = me; driveT = now;
@@ -377,20 +460,24 @@ async function driveUpdate(){
       const ad = d.addresses?.[0]?.address || {};
       const sl = ad.speedLimit;
       driveStreet = ad.street || ad.streetName || '';
+      if (ad.countryCode) setCountry(ad.countryCode);
       const v = sl ? parseFloat(sl) * (/MPH/i.test(sl) ? 1.609 : 1) : NaN;
-      driveLim = fixLimit(isNaN(v) ? null : Math.round(v), driveStreet);
+      ttLim = isNaN(v) ? null : Math.round(v);
     }catch{}
   }
+  osmPrefetch(me.lat, me.lng);
+  const osm = osmLimitAt([me.lat, me.lng], myHeading);
+  driveLim = osm || fixLimit(ttLim, driveStreet);
   const el = $('#driveLimit');
-  if (driveLim){ el.textContent = driveLim; el.classList.remove('none'); } else el.classList.add('none');
+  if (driveLim){ el.textContent = U(driveLim); el.classList.remove('none'); } else el.classList.add('none');
   const over = driveLim && spd > driveLim + 3;
   $('#driveSpeedBox').classList.toggle('over', !!over);
-  if (over && now - driveOverSaid > 30000){ say(`Cuidado, el límite es ${driveLim}`); driveOverSaid = now; }
+  if (over && now - driveOverSaid > 30000){ say(`Cuidado, el límite es ${U(driveLim)}`); driveOverSaid = now; }
 }
 
 /* ---------- Rutas con tráfico (TomTom Routing) ---------- */
 async function geocode(q){
-  const u = `${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&limit=1&countrySet=AR&language=es-419&lat=${me.lat}&lon=${me.lng}`;
+  const u = `${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&limit=1&language=es-419&lat=${me.lat}&lon=${me.lng}`;
   const r = await fetch(u); const d = await r.json();
   if (!r.ok) throw new Error(d.errorText || d.detailedError?.message || 'Error ' + r.status);
   const hit = d.results?.[0];
@@ -483,7 +570,7 @@ let myHeading = 0, lastFix = null, mySpeed = 0;
 /* Radares: cámaras de velocidad de OpenStreetMap (Overpass) */
 const camStore = new Map(), camMarkers = new Map(), camTiles = new Set();
 let camTimer;
-const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
 async function overpass(bb){
   const q = `[out:json][timeout:25];(node["highway"="speed_camera"](${bb});node["enforcement"="maxspeed"](${bb});node["speed_camera"](${bb}););out;`;
   for (const url of OVERPASS){
@@ -671,15 +758,18 @@ function navUpdate(p){
   const limTT = r.limits.find(z => loc.i >= z.s && loc.i < z.e);
   let curStreet = '';
   for (const g2 of r.instr){ if (g2.pi != null && g2.pi <= loc.i){ if (g2.street) curStreet = g2.street; } else if (g2.pi > loc.i) break; }
-  const limV = fixLimit(limTT ? limTT.v : null, curStreet);
+  osmPrefetch(pt[0], pt[1]);
+  { const ahead = posAt(r, Math.min(loc.along + 800, r.cum[r.cum.length - 1])); osmPrefetch(ahead.lat, ahead.lng); }
+  const segA = r.path[loc.i], segB = r.path[loc.i + 1] || segA;
+  const limV = osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
   const lim = limV ? {v:limV} : null;
   const limEl = $('#navLimit');
-  if (lim){ limEl.textContent = lim.v; limEl.classList.remove('none'); } else limEl.classList.add('none');
+  if (lim){ limEl.textContent = U(lim.v); limEl.classList.remove('none'); } else limEl.classList.add('none');
   const spd = Math.round(nav.sim ? 72 : mySpeed);
-  $('#navSpeed').textContent = spd;
+  $('#navSpeed').textContent = U(spd);
   const over = lim && spd > lim.v + 3;
   $('#navSpeedBox').classList.toggle('over', !!over);
-  if (over && Date.now() - (nav.overSaid || 0) > 30000){ say(`Cuidado, el límite es ${lim.v}`); nav.overSaid = Date.now(); }
+  if (over && Date.now() - (nav.overSaid || 0) > 30000){ say(`Cuidado, el límite es ${U(lim.v)}`); nav.overSaid = Date.now(); }
 
   // radares
   const cam = r.cams.find(c => c.along > loc.along - 10);
