@@ -72,7 +72,10 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 body.nav .radar.on{display:block}
 .camIcon{width:26px;height:26px;border-radius:50%;background:var(--red);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px #0008}
 .startNav{width:100%;margin-top:10px;min-height:54px;font-size:18px;font-weight:800}
-body.nav .sheet,body.nav #btnCfg{display:none}
+body.nav .sheet,body.nav #btnCfg,body.nav .drive{display:none}
+.drive{position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:5;display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:40px;padding:6px 16px 6px 6px;box-shadow:0 4px 14px #0008}
+.drive .limit{width:56px;height:56px;font-size:21px}
+.drive .speed b{font-size:28px}
 .navTop,.navBot{position:fixed;left:10px;right:10px;z-index:6;display:none}
 body.nav .navTop,body.nav .navBot{display:flex}
 .navTop{top:calc(10px + env(safe-area-inset-top));gap:14px;align-items:center;background:var(--green);color:#fff;border-radius:18px;padding:14px 16px;box-shadow:0 6px 20px #0008;right:70px}
@@ -103,6 +106,10 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
 <body>
 <div id="map"></div>
 
+<div class="drive" id="drive">
+  <div class="limit none" id="driveLimit" aria-label="Límite de velocidad"></div>
+  <div class="speed" id="driveSpeedBox"><b id="driveSpeed">0</b><small>km/h</small></div>
+</div>
 <button class="fab" id="btnMe" aria-label="Centrar en mi ubicación">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
 </button>
@@ -336,7 +343,7 @@ function startGps(){
     if (h != null && !isNaN(h) && (p.coords.speed || 0) > 0.7) myHeading = h;
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
-    if (!nav) setMe([me.lat, me.lng], myHeading);
+    if (!nav){ setMe([me.lat, me.lng], myHeading); driveUpdate(); }
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
@@ -346,6 +353,29 @@ $('#btnMe').onclick = () => {
   if (nav){ nav.follow = true; nav.headUp = true; if (nav.last) follow(nav.last.pt, nav.last.deg); return; }
   if (me && map) moveTo([me.lat, me.lng], 16);
 };
+
+/* ---------- Velocímetro y límite sin navegación ---------- */
+let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0;
+async function driveUpdate(){
+  const spd = Math.max(0, Math.round(mySpeed));
+  $('#driveSpeed').textContent = spd;
+  const now = Date.now();
+  if (!driveAt || hav([driveAt.lat, driveAt.lng], [me.lat, me.lng]) > 120 || now - driveT > 20000){
+    driveAt = me; driveT = now;
+    try{
+      const r = await fetch(`${T}/search/2/reverseGeocode/${me.lat},${me.lng}.json?key=${encodeURIComponent(apiKey)}&returnSpeedLimit=true&radius=40`);
+      const d = await r.json();
+      const sl = d.addresses?.[0]?.address?.speedLimit;
+      const v = sl ? parseFloat(sl) * (/MPH/i.test(sl) ? 1.609 : 1) : NaN;
+      driveLim = isNaN(v) ? null : Math.round(v);
+    }catch{}
+  }
+  const el = $('#driveLimit');
+  if (driveLim){ el.textContent = driveLim; el.classList.remove('none'); } else el.classList.add('none');
+  const over = driveLim && spd > driveLim + 3;
+  $('#driveSpeedBox').classList.toggle('over', !!over);
+  if (over && now - driveOverSaid > 30000){ say(`Cuidado, el límite es ${driveLim}`); driveOverSaid = now; }
+}
 
 /* ---------- Rutas con tráfico (TomTom Routing) ---------- */
 async function geocode(q){
