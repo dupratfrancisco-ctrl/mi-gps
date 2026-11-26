@@ -68,7 +68,7 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .speed b{display:block;font-size:24px;line-height:1}
 .speed small{color:var(--mute);font-size:12px}
 .speed.over b{color:var(--red)}
-.radar{position:fixed;left:10px;z-index:6;bottom:calc(98px + env(safe-area-inset-bottom));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
+.radar{position:fixed;left:10px;z-index:6;bottom:calc(92px + env(safe-area-inset-bottom));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
 body.nav .radar.on{display:block}
 .camIcon{width:26px;height:26px;border-radius:50%;background:var(--red);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px #0008}
 .startNav{width:100%;margin-top:10px;min-height:54px;font-size:18px;font-weight:800}
@@ -84,11 +84,12 @@ body.nav .navTop,body.nav .navBot{display:flex}
 .navTop .dist{font-size:34px;font-weight:800;line-height:1}
 .navTop .msg{font-size:17px;font-weight:700;line-height:1.25;margin-top:4px}
 .navTop .then{font-size:13px;opacity:.85;margin-top:6px}
-.navBot{bottom:calc(10px + env(safe-area-inset-bottom));align-items:center;gap:12px;background:var(--panel);border-radius:18px;padding:12px 14px;box-shadow:0 -4px 20px #0008}
-.navBot .big{font-size:26px;font-weight:800;color:var(--green);line-height:1}
-.navBot .small{color:var(--mute);font-size:14px}
-.navBot .grow{flex:1}
-.navBot .btn{flex:none}
+.navBot{left:0!important;right:0!important;bottom:0;align-items:center;gap:10px;background:var(--panel);border-radius:20px 20px 0 0;padding:12px 12px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px #0008}
+.navBot .big{font-size:26px;font-weight:800;color:var(--green);line-height:1.1;white-space:nowrap}
+.navBot .small{color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navBot .grow{flex:1;min-width:0}
+.navBot .btn{flex:none;padding:0 12px}
+@media(max-width:430px){.navBot{gap:8px}.navBot .big{font-size:21px}.navBot .small{font-size:13px}.navBot .limit{width:46px;height:46px;font-size:17px;border-width:5px}.navBot .speed b{font-size:20px}.navBot .btn{padding:0 10px;font-size:14px}}
 .navBot .exit{background:var(--red);color:#fff}
 @media(max-width:600px){.navTop .dist{font-size:28px}.navTop .arrow{width:52px;height:52px}.navTop .arrow svg{width:46px;height:46px}}
 dialog{border:0;border-radius:18px;background:var(--panel);color:var(--ink);width:min(520px,94vw);padding:18px;max-height:90vh}
@@ -285,7 +286,7 @@ $('#sugg').onclick = e => { const b = e.target.closest('button'); if (b) pickSug
 const T = 'https://api.tomtom.com';
 const fmtMin = s => { const m = Math.round(s/60); return m < 60 ? `${m} min` : `${Math.floor(m/60)} h ${m%60} min`; };
 const fmtKm = m => m < 1000 ? `${m} m` : `${(m/1000).toFixed(1).replace('.', ',')} km`;
-const fmtHora = d => d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+const fmtHora = d => d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', hour12:false});
 
 const ll2 = a => [a[1], a[0]];
 function initMap(){
