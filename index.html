@@ -25,6 +25,7 @@
 #navVoice{top:calc(72px + env(safe-area-inset-top));display:none;font-size:20px}
 #btnPark{top:calc(188px + env(safe-area-inset-top));font-weight:800;font-size:20px;color:#fff;background:#1f6feb}
 body.nav #btnPark{display:none}
+.destPin{width:40px;height:40px;border-radius:50%;background:#fff;border:3px solid #111;display:grid;place-items:center;box-shadow:0 0 0 4px #0a5cff,0 4px 12px #000a}
 .parkPin{width:34px;height:34px;border-radius:9px;background:#1f6feb;color:#fff;border:3px solid #fff;display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:0 3px 10px #0009}
 .park{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border-radius:14px;background:var(--bg);border:1px solid var(--line)}
 .park .pi{width:34px;height:34px;flex:none;border-radius:9px;background:#1f6feb;color:#fff;display:grid;place-items:center;font-weight:800}
@@ -270,14 +271,52 @@ const SHOP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke
 const CAT = {'cafe':'Café','café':'Café','restaurant':'Restaurante','fast food':'Comida rápida','pub':'Bar','bar':'Bar','petrol station':'Estación de servicio','gas station':'Estación de servicio','parking garage':'Estacionamiento','open parking area':'Estacionamiento','hospital':'Hospital','pharmacy':'Farmacia','supermarkets & hypermarkets':'Supermercado','shop':'Comercio','hotel':'Hotel','college/university':'Universidad','school':'Escuela','bank':'Banco','atm':'Cajero','shopping center':'Shopping','stadium':'Estadio','park':'Parque','gym':'Gimnasio','bakery':'Panadería','ice cream parlor':'Heladería','pizza':'Pizzería','latin american':'Restaurante','grill':'Parrilla','steak house':'Parrilla','railroad station':'Estación de tren','metro station':'Estación de subte','bus stop':'Parada de colectivo','airport':'Aeropuerto','clothing shop':'Ropa','doctor':'Médico','dentist':'Dentista','church':'Iglesia','museum':'Museo','cinema':'Cine','theater':'Teatro'};
 const catEs = c => { const k = c.toLowerCase(); return CAT[k] || (c ? c[0].toUpperCase() + c.slice(1) : ''); };
 function hideSugg(){ suggs = []; $('#sugg').innerHTML = ''; }
+/* Lugares corregidos a mano: nombre real y dirección verificada */
+const MY_PLACES = [
+  {name:'Zadig & Voltaire Vintage', addr:'El Salvador 4701, Palermo Soho, CABA', cat:'Ropa', alias:['zadig', 'voltaire', 'sadig', 'zadig vintage']}
+];
+const norm = t => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/&/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const placeCache = {};
+async function myPlaceHits(q){
+  const nq = norm(q);
+  const hits = MY_PLACES.filter(p => [p.name, ...p.alias].some(a => { const na = norm(a); return na.startsWith(nq) || nq.startsWith(na) || na.includes(nq); }));
+  const out = [];
+  for (const p of hits){
+    if (!placeCache[p.name]){
+      try{
+        const d = await (await fetch(`${T}/search/2/geocode/${encodeURIComponent(p.addr + ', Argentina')}.json?key=${encodeURIComponent(apiKey)}&limit=1`)).json();
+        const r = d.results?.[0]; if (r) placeCache[p.name] = {lat:r.position.lat, lng:r.position.lon};
+      }catch{}
+    }
+    const pos = placeCache[p.name]; if (!pos) continue;
+    out.push({name:p.name, addr:p.addr, cat:p.cat, isPoi:true, pos, dist:me ? hav([me.lat, me.lng], [pos.lat, pos.lng]) : null});
+  }
+  return out;
+}
+/* Segunda fuente de nombres: OpenStreetMap (Photon), suele tener los locales con el nombre correcto */
+async function photonHits(q){
+  const lat = me ? me.lat : -34.6037, lon = me ? me.lng : -58.3816;
+  try{
+    const d = await (await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${lat}&lon=${lon}&limit=6&lang=default`)).json();
+    return (d.features || []).filter(f => f.properties?.name).map(f => {
+      const pr = f.properties, pos = {lat:f.geometry.coordinates[1], lng:f.geometry.coordinates[0]};
+      const street = [pr.street, pr.housenumber].filter(Boolean).join(' ');
+      const isPoi = !['house', 'street', 'city', 'district', 'locality', 'county', 'state'].includes(pr.type) && pr.osm_key !== 'highway' && pr.osm_key !== 'place';
+      return {name:pr.name, addr:[street, pr.district || pr.city, pr.state].filter(Boolean).join(', '), cat:isPoi ? catEs((pr.osm_value || '').replace(/_/g, ' ')) : '', isPoi, pos, dist:me ? hav([me.lat, me.lng], [pos.lat, pos.lng]) : null};
+    });
+  }catch{ return []; }
+}
 async function loadSugg(q){
   const seq = ++suggSeq;
   const bias = me ? `&lat=${me.lat}&lon=${me.lng}` : '&lat=-34.6037&lon=-58.3816';
   try{
-    const r = await fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&typeahead=true&limit=8&language=es-419${bias}`);
-    const d = await r.json();
+    const [mine, tt, ph] = await Promise.all([
+      myPlaceHits(q),
+      fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&typeahead=true&limit=8&language=es-419${bias}`).then(r => r.json()).catch(() => ({})),
+      photonHits(q)
+    ]);
     if (seq !== suggSeq) return;
-    suggs = (d.results || []).map(x => {
+    const fromTT = (tt.results || []).map(x => {
       const a = x.address || {};
       const poi = x.poi?.name;
       const street = [a.streetName, a.streetNumber].filter(Boolean).join(' ');
@@ -289,6 +328,16 @@ async function loadSugg(q){
         pos: {lat:x.position.lat, lng:x.position.lon}
       };
     });
+    // mezclo: mis lugares primero, después los que más se parecen a lo escrito; saco repetidos
+    const nq = norm(q);
+    const score = s => (norm(s.name).includes(nq) ? 0 : 1) * 1e6 + (s.dist ?? 5e5);
+    const all = [...mine, ...[...fromTT, ...ph].sort((a, b) => score(a) - score(b))];
+    suggs = [];
+    for (const s of all){
+      if (suggs.some(o => hav([o.pos.lat, o.pos.lng], [s.pos.lat, s.pos.lng]) < 60 && (norm(o.name).includes(norm(s.name).split(' ')[0]) || norm(s.name).includes(norm(o.name).split(' ')[0])))) continue;
+      suggs.push(s);
+      if (suggs.length >= 8) break;
+    }
     $('#sugg').innerHTML = suggs.map((s, i) => `<button type="button" role="option" data-i="${i}">
       <span class="ic">${s.isPoi ? SHOP : PIN}</span>
       <span class="nm">${esc(s.name)}</span>
@@ -660,15 +709,25 @@ async function route(dest, pos, opts = {}){
   }
 }
 
+let destMarker = null;
+function setDest(pos){
+  if (destMarker){ destMarker.remove(); destMarker = null; }
+  if (!pos || !map) return;
+  const el = document.createElement('div');
+  el.className = 'destPin';
+  el.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M6 21V4" stroke="#111" stroke-width="2" stroke-linecap="round"/><g transform="translate(7 4)"><rect width="12" height="9" fill="#fff" stroke="#111" stroke-width="1.2"/><rect x="0" y="0" width="3" height="3" fill="#111"/><rect x="6" y="0" width="3" height="3" fill="#111"/><rect x="3" y="3" width="3" height="3" fill="#111"/><rect x="9" y="3" width="3" height="3" fill="#111"/><rect x="0" y="6" width="3" height="3" fill="#111"/><rect x="6" y="6" width="3" height="3" fill="#111"/></g></svg>';
+  destMarker = new maplibregl.Marker({element:el, anchor:'center'}).setLngLat([pos.lng, pos.lat]).addTo(map);
+}
 function setRouteLines(){
   const src = map && map.getSource('routes'); if (!src) return;
   src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
     geometry:{type:'LineString', coordinates:r.path.map(ll2)}}))});
 }
-function clearRoutes(){ routes = []; setRouteLines(); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
+function clearRoutes(){ routes = []; setRouteLines(); setDest(null); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
 
 function draw(){
   setRouteLines();
+  setDest(destPos);
   if (nav) return;
   const b = new maplibregl.LngLatBounds();
   routes[sel].path.forEach(p => b.extend(ll2(p)));
