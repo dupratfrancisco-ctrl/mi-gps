@@ -86,10 +86,11 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .meArrow svg{width:44px;height:44px;filter:drop-shadow(0 3px 3px #0005)}
 .limit{flex:none;width:52px;height:52px;border-radius:50%;background:#fff;border:6px solid var(--red);color:#111;display:grid;place-items:center;font-weight:800;font-size:19px}
 .limit.none{display:none}
-.speed{flex:none;text-align:center;min-width:52px}
-.speed b{display:block;font-size:24px;line-height:1}
-.speed small{color:var(--mute);font-size:12px}
-.speed.over b{color:var(--red)}
+.speed{flex:none;width:42px;height:42px;border-radius:50%;background:#fff;border:3px solid #4a4e57;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#111;box-shadow:0 1px 4px #0003}
+.speed b{display:block;font-size:16px;line-height:1;font-weight:800}
+.speed small{font-size:7.5px;line-height:1;color:#555;margin-top:1px}
+.speed.over{background:var(--red);border-color:var(--red);color:#fff}
+.speed.over small{color:#fff}
 .recenter{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));z-index:7;display:none;min-height:48px;padding:0 22px;border:0;border-radius:24px;background:#0a5cff;color:#fff;font:inherit;font-weight:800;font-size:17px;box-shadow:0 6px 18px #000a;cursor:pointer}
 body.nav .recenter.on{display:block}
 .radar{position:fixed;left:10px;z-index:6;bottom:calc(92px + env(safe-area-inset-bottom));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
@@ -99,7 +100,8 @@ body.nav .radar.on{display:block}
 body.nav .sheet,body.nav #btnCfg,body.nav .drive{display:none}
 .drive{position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:5;display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:40px;padding:6px 16px 6px 6px;box-shadow:0 4px 14px #0008}
 .drive .limit{width:56px;height:56px;font-size:21px}
-.drive .speed b{font-size:28px}
+.drive .speed{width:44px;height:44px}
+.drive .speed b{font-size:17px}
 .navTop,.navBot{position:fixed;left:10px;right:10px;z-index:6;display:none}
 body.nav .navTop,body.nav .navBot{display:flex}
 .navTop{top:0;left:0!important;right:0!important;gap:16px;align-items:center;background:#0b0b0c;color:#fff;border-radius:0 0 20px 20px;padding:calc(14px + env(safe-area-inset-top)) 18px 16px;box-shadow:0 6px 20px #0005}
@@ -114,7 +116,7 @@ body.nav .navTop,body.nav .navBot{display:flex}
 .navBot .small{color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .navBot .grow{flex:1;min-width:0}
 .navBot .btn{flex:none;padding:0 12px}
-@media(max-width:430px){.navBot .lbl{display:none}.navBot{gap:7px;padding-left:10px;padding-right:10px}.navBot .big{font-size:21px}.navBot .small{font-size:12.5px}.navBot .limit{width:44px;height:44px;font-size:17px;border-width:5px}.navBot .speed{min-width:40px}.navBot .speed b{font-size:20px}.navBot .btn{padding:0 9px;font-size:14px;min-height:42px}}
+@media(max-width:430px){.navBot .lbl{display:none}.navBot{gap:7px;padding-left:10px;padding-right:10px}.navBot .big{font-size:21px}.navBot .small{font-size:12.5px}.navBot .limit{width:44px;height:44px;font-size:17px;border-width:5px}.navBot .speed{width:38px;height:38px}.navBot .speed b{font-size:14px}.navBot .btn{padding:0 9px;font-size:14px;min-height:42px}}
 .navBot .exit{background:var(--red);color:#fff}
 @media(max-width:600px){.navTop .dist{font-size:30px}.navTop .msg{font-size:23px}.navTop .arrow{width:56px;height:56px}.navTop .arrow svg{width:52px;height:52px}}
 body.nav #btnMe{top:calc(150px + env(safe-area-inset-top))}
@@ -569,7 +571,20 @@ function startGps(){
     if (nav && nav.sim) return;
     me = {lat:p.coords.latitude, lng:p.coords.longitude};
     const h = p.coords.heading;
-    mySpeed = p.coords.speed != null && !isNaN(p.coords.speed) ? p.coords.speed * 3.6 : mySpeed;
+    {
+      const t = p.timestamp || Date.now();
+      let v = p.coords.speed;                                   // m/s
+      if (v == null || isNaN(v) || v < 0){
+        v = null;
+        if (spdPrev){ const dt = (t - spdPrev.t) / 1000; if (dt >= 0.8) v = hav([spdPrev.lat, spdPrev.lng], [me.lat, me.lng]) / dt; }
+      }
+      if (!spdPrev || (t - spdPrev.t) >= 800) spdPrev = {lat:me.lat, lng:me.lng, t};
+      if (v != null){
+        const kmh = v * 3.6;
+        mySpeed = kmh < 3 ? 0 : (mySpeed ? mySpeed * 0.4 + kmh * 0.6 : kmh);
+        spdT = Date.now();
+      }
+    }
     if (h != null && !isNaN(h) && (p.coords.speed || 0) > 0.7) myHeading = h;
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
@@ -673,6 +688,17 @@ function osmLimitAt(p, heading){
 }
 
 /* ---------- Velocímetro y límite sin navegación ---------- */
+let spdPrev = null, spdT = 0;
+// si hace rato que no llega una posición nueva, estás quieto: la velocidad vuelve a 0
+setInterval(() => {
+  if (nav && nav.sim) return;
+  if (Date.now() - spdT > 4000 && mySpeed){
+    mySpeed = 0;
+    const d = $('#driveSpeed'); if (d) d.textContent = '0';
+    const n = $('#navSpeed'); if (n) n.textContent = '0';
+    $('#driveSpeedBox')?.classList.remove('over'); $('#navSpeedBox')?.classList.remove('over');
+  }
+}, 1500);
 let driveLim = null, driveAt = null, driveT = 0, driveOverSaid = 0, driveStreet = '', curCountry = 'AR', ttLim = null;
 /* Corrige el dato de TomTom con la ley de tránsito (Ley 24.449 / CABA): calles 40, avenidas 60.
    Si TomTom marca un límite menor en una calle (zona escolar, 20 o 30), se respeta. */
