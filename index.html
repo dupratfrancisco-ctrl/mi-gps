@@ -85,6 +85,8 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .speed b{display:block;font-size:24px;line-height:1}
 .speed small{color:var(--mute);font-size:12px}
 .speed.over b{color:var(--red)}
+.recenter{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));z-index:7;display:none;min-height:48px;padding:0 22px;border:0;border-radius:24px;background:#0a5cff;color:#fff;font:inherit;font-weight:800;font-size:17px;box-shadow:0 6px 18px #000a;cursor:pointer}
+body.nav .recenter.on{display:block}
 .radar{position:fixed;left:10px;z-index:6;bottom:calc(92px + env(safe-area-inset-bottom));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
 body.nav .radar.on{display:block}
 .camIcon{width:26px;height:26px;border-radius:50%;background:var(--red);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px #0008}
@@ -175,6 +177,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   </div>
 </div>
 <div class="radar" id="navRadar">RADAR</div>
+<button class="recenter" id="recenter" type="button">◎ Centrar</button>
 <div class="navBot" id="navBot">
   <div class="limit none" id="navLimit" aria-label="Límite de velocidad"></div>
   <div class="speed" id="navSpeedBox"><b id="navSpeed">0</b><small>km/h</small></div>
@@ -434,7 +437,11 @@ function initMap(){
   map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
   map.on('rotate', updateNorth);
   map.on('pitch', updateNorth);
-  map.on('dragstart', () => { if (nav) nav.follow = false; });
+  const userMoved = e => { if (nav && (e.originalEvent || e.type === 'dragstart')){ nav.follow = false; $('#recenter').classList.add('on'); } };
+  map.on('dragstart', userMoved);
+  map.on('rotatestart', userMoved);
+  map.on('pitchstart', userMoved);
+  map.on('zoomstart', e => { if (e.originalEvent) userMoved(e); });
 }
 function updateNorth(){
   const b = map.getBearing(), p = map.getPitch();
@@ -463,7 +470,7 @@ function startGps(){
   {enableHighAccuracy:true, maximumAge:5000});
 }
 $('#btnMe').onclick = () => {
-  if (nav){ nav.follow = true; nav.headUp = true; if (nav.last) follow(nav.last.pt, nav.last.deg); return; }
+  if (nav){ $('#recenter').click(); return; }
   if (me && map) moveTo([me.lat, me.lng], 16);
 };
 
@@ -999,10 +1006,13 @@ function navUpdate(p){
 
   const A = r.path[loc.i], B = r.path[loc.i + 1] || A;
   const deg = A === B ? myHeading : bearing(A, B);
-  const animDur = setMe(pt, deg);
+  // la flecha va pegada a la línea de la ruta (si estás a menos de 35 m de ella)
+  const sp = loc.off < 35 ? posAt(r, loc.along) : null;
+  const vis = sp ? [sp.lat, sp.lng] : pt;
+  const animDur = setMe(vis, deg);
   myHeading = deg;
-  nav.last = {pt, deg};
-  if (nav.follow) follow(pt, deg, animDur);
+  nav.last = {pt:vis, deg};
+  if (nav.follow) follow(vis, deg, animDur);
 }
 
 function setNavRoute(r){
@@ -1036,7 +1046,14 @@ async function startNav(){
   try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{}
 }
 
+$('#recenter').onclick = () => {
+  if (!nav) return;
+  nav.follow = true; nav.headUp = true;
+  $('#recenter').classList.remove('on');
+  if (nav.last) follow(nav.last.pt, nav.last.deg, 700);
+};
 function stopNav(){
+  $('#recenter').classList.remove('on');
   if (!nav) return;
   clearInterval(nav.timer); clearInterval(nav.sim);
   la('navEnd', {});
