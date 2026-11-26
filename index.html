@@ -548,7 +548,7 @@ const ONEWAY_SEGS = [
 ];
 let onewaySegs = ONEWAY_SEGS;
 function loadOneway(){ return Promise.resolve(onewaySegs); }
-// Devuelve puntos a mitad de cuadra donde la ruta va a contramano
+// Devuelve las esquinas donde la ruta va a contramano (TomTom solo evita zonas que contengan un nodo de la calle)
 function wrongWay(path){
   const out = [];
   if (!onewaySegs) return out;
@@ -567,7 +567,7 @@ function wrongWay(path){
       const P = path[i], Q = path[i+1];
       if (hav(P, Q) < 8 || !near(P) || !near(Q)) continue;
       let diff = Math.abs(((bearing(P, Q) - allowed) % 360 + 540) % 360 - 180);
-      if (diff > 120) out.push([(P[0]+Q[0])/2, (P[1]+Q[1])/2]);
+      if (diff > 120 && !out.some(o => o[0] === Q[0] && o[1] === Q[1])) out.push(Q);
     }
   }
   return out;
@@ -576,14 +576,14 @@ async function routeReq(from, to, alts, avoid, when){
   const tq = when ? `&${when.mode === 'arrive' ? 'arriveAt' : 'departAt'}=${encodeURIComponent(when.date.toISOString().slice(0, 19) + 'Z')}` : '';
   const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES${tq}`;
   if (!avoid.length) return fetch(u);
-  const d = .00012;   // ~12 m alrededor de cada punto a mitad de cuadra
+  const d = .00008;   // ~9 m alrededor de cada esquina a evitar
   return fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({avoidAreas:{rectangles:avoid.map(p => ({
     southWestCorner:{latitude:p[0]-d, longitude:p[1]-d}, northEastCorner:{latitude:p[0]+d, longitude:p[1]+d}}))}})});
 }
 async function fetchRoutes(from, to, alts, when){
   await Promise.race([loadOneway(), new Promise(r => setTimeout(r, 4000))]);
   let avoid = [], data, r;
-  for (let tries = 0; tries < 3; tries++){
+  for (let tries = 0; tries < 4; tries++){
     r = await routeReq(from, to, alts, avoid, when); data = await r.json();
     if (!r.ok || !data.routes?.length) break;
     const bad = data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
