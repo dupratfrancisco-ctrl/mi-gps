@@ -592,7 +592,7 @@ function wrongWay(path){
 let travelMode = 'car';
 async function routeReq(from, to, alts, avoid, when){
   const tq = when ? `&${when.mode === 'arrive' ? 'arriveAt' : 'departAt'}=${encodeURIComponent(when.date.toISOString().slice(0, 19) + 'Z')}` : '';
-  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=${travelMode}&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES${tq}`;
+  const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=${travelMode}&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text${travelMode === 'car' ? '&sectionType=speedLimit' : ''}&language=es-ES${tq}`;
   if (!avoid.length) return fetch(u);
   const d = .00008;   // ~9 m alrededor de cada esquina a evitar
   return fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({avoidAreas:{rectangles:avoid.map(p => ({
