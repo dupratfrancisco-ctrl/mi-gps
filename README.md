@@ -1,13 +1,11 @@
 # Mi GPS
 
-App personal de rutas con tráfico en tiempo real (Google Maps + Routes API), como web app instalable.
+App personal de rutas con tráfico en tiempo real (TomTom + Leaflet), como web app instalable. Gratis, sin tarjeta.
 
-## Clave de Google Maps
-1. Entrá a https://console.cloud.google.com y creá un proyecto.
-2. Activá **Maps JavaScript API** y **Routes API** (APIs y servicios → Biblioteca).
-3. Creá una clave en Credenciales → Crear credenciales → Clave de API.
-4. Restringí la clave a sitios web: `https://dupratfrancisco-ctrl.github.io/*`, y a esas dos APIs.
-5. Abrí la app y pegá la clave en Ajustes (⚙). Queda guardada solo en tu celular, no en el repo.
+## Clave de TomTom
+1. Creá una cuenta gratis en https://developer.tomtom.com (no pide tarjeta).
+2. En el Dashboard → Keys, copiá tu clave de API.
+3. Abrí la app y pegala en Ajustes (⚙). Queda guardada solo en tu celular, no en el repo.
 
 ## Instalar en el celular
-Abrí la URL de GitHub Pages en Chrome (Android) o Safari (iPhone) y elegí **Agregar a pantalla de inicio**.
+Abrí https://dupratfrancisco-ctrl.github.io/mi-gps/ en Chrome (Android) o Safari (iPhone) y elegí **Agregar a pantalla de inicio**.
