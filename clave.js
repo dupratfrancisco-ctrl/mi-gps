@@ -1,3 +1,3 @@
 // Pegá tu clave de TomTom entre las comillas y guardá (Commit changes).
 // Así la app ya la trae puesta en todos tus dispositivos.
-window.TOMTOM_KEY = "";
+window.TOMTOM_KEY = "aemxZ60p6p0MwaUpNlVrK9Epwkmqd9No";
