@@ -38,6 +38,11 @@ body.nav #navVoice{display:grid}
 #btnNorth svg{transition:none}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--mute);font-size:13px;margin-top:8px}
 .legend i{display:inline-block;width:18px;height:5px;border-radius:3px;vertical-align:middle;margin-right:5px}
+:root.dark{--bg:#0e1116;--panel:#171b22;--line:#262c36;--ink:#f2f4f7;--mute:#9aa3b2}
+:root.dark .maplibregl-map{background:#1b2029}
+:root.dark .maplibregl-ctrl-attrib{background:#0e1116aa!important;color:#9aa3b2}
+:root.dark .maplibregl-ctrl-attrib a{color:#9aa3b2}
+:root.dark .when input{color-scheme:dark}
 :root{--bg:#f3f4f6;--panel:#ffffff;--line:#e3e6eb;--ink:#15171c;--mute:#6b7280;--blue:#0a5cff;--green:#00a05a;--amber:#ffb400;--red:#e6261f}
 *{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.45 Figtree,system-ui,sans-serif;overflow:hidden}
@@ -415,11 +420,51 @@ function bigger(ts, f){
   if (Array.isArray(ts) && ts[0] === 'step') return ts.map((v, i) => (i === 2 || (i > 2 && i % 2 === 0)) && typeof v === 'number' ? v * f : v);
   return ts;
 }
-async function buildStyle(k){
+/* Día o noche según la salida y puesta del sol donde estás */
+function sunTimes(lat, lng, d = new Date()){
+  const rad = Math.PI / 180, day = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
+  const decl = 23.44 * Math.sin(rad * (360 / 365) * (day - 81));
+  const cosH = (Math.sin(-0.833 * rad) - Math.sin(lat * rad) * Math.sin(decl * rad)) / (Math.cos(lat * rad) * Math.cos(decl * rad));
+  if (cosH > 1) return null; if (cosH < -1) return null;
+  const H = Math.acos(cosH) / rad / 15;                       // horas desde el mediodía solar
+  const B = rad * (360 / 365) * (day - 81);
+  const eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);   // ecuación del tiempo (min)
+  const noonUTC = 12 - lng / 15 - eot / 60;
+  const base = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return {rise:new Date(base + (noonUTC - H) * 3600e3), set:new Date(base + (noonUTC + H) * 3600e3)};
+}
+function isNight(){
+  const lat = me ? me.lat : -34.6, lng = me ? me.lng : -58.4, now = new Date();
+  const t = sunTimes(lat, lng, now);
+  if (!t){ const h = now.getHours(); return h < 7 || h >= 20; }
+  return now < t.rise || now > t.set;
+}
+let nightMode = null;
+function applyThemeClass(night){
+  document.documentElement.classList.toggle('dark', night);
+  document.querySelector('meta[name=theme-color]').setAttribute('content', night ? '#0e1116' : '#f3f4f6');
+}
+async function checkDayNight(){
+  if (!map) return;
+  const night = isNight();
+  if (night === nightMode) return;
+  nightMode = night;
+  applyThemeClass(night);
+  map.setStyle(await buildStyle(encodeURIComponent(apiKey), night), {diff:false});
+}
+
+async function buildStyle(k, night){
   const traffic = {
-    flow:{type:'raster', tiles:[`${T}/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22},
-    inc:{type:'raster', tiles:[`${T}/traffic/map/4/tile/incidents/s3/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22}
+    flow:{type:'raster', tiles:[`${T}/traffic/map/4/tile/flow/${night ? 'relative0-dark' : 'relative0'}/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22},
+    inc:{type:'raster', tiles:[`${T}/traffic/map/4/tile/incidents/${night ? 'night' : 's3'}/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22}
   };
+  if (night){
+    // de noche: mapa oscuro
+    return {version:8, sources:{
+      base:{type:'raster', tiles:[`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
+      ...traffic
+    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}, {id:'inc', type:'raster', source:'inc'}]};
+  }
   const trafficLayers = [
     {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.85}},
     {id:'inc', type:'raster', source:'inc'}
@@ -453,10 +498,31 @@ async function initMap(){
   map = new maplibregl.Map({
     container:'map', center:[-58.3816, -34.6037], zoom:13, maxPitch:65,
     attributionControl:{compact:true, customAttribution:'Tráfico © TomTom · Radares y mapa © OpenStreetMap'},
-    style:await buildStyle(k)
+    style:await buildStyle(k, (nightMode = isNight()))
   });
+  applyThemeClass(nightMode);
+  map.on('style.load', addAppLayers);
+  setInterval(checkDayNight, 5 * 60000);
   map.touchZoomRotate.enableRotation();
   map.on('load', () => {
+    map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
+    startGps();
+    drawPark();
+    loadBaseCams().then(loadAreaCams);
+    loadOneway();
+    setTimeout(checkDayNight, 3000);   // con tu ubicación real
+  });
+  map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
+  map.on('rotate', updateNorth);
+  map.on('pitch', updateNorth);
+  const userMoved = e => { if (nav && (e.originalEvent || e.type === 'dragstart')){ nav.follow = false; $('#recenter').classList.add('on'); } };
+  map.on('dragstart', userMoved);
+  map.on('rotatestart', userMoved);
+  map.on('pitchstart', userMoved);
+  map.on('zoomstart', e => { if (e.originalEvent) userMoved(e); });
+}
+function addAppLayers(){
+  if (map.getSource('routes')) return;
     map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#b9a3ff', 'line-width':7, 'line-opacity':.85}});
@@ -470,20 +536,8 @@ async function initMap(){
     map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
-    map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
-    startGps();
-    drawPark();
-    loadBaseCams().then(loadAreaCams);
-    loadOneway();
-  });
-  map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
-  map.on('rotate', updateNorth);
-  map.on('pitch', updateNorth);
-  const userMoved = e => { if (nav && (e.originalEvent || e.type === 'dragstart')){ nav.follow = false; $('#recenter').classList.add('on'); } };
-  map.on('dragstart', userMoved);
-  map.on('rotatestart', userMoved);
-  map.on('pitchstart', userMoved);
-  map.on('zoomstart', e => { if (e.originalEvent) userMoved(e); });
+  setRouteLines();
+  addCams([]);
 }
 function updateNorth(){
   const b = map.getBearing(), p = map.getPitch();
@@ -505,7 +559,6 @@ function startGps(){
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
     if (!nav){ setMe([me.lat, me.lng], myHeading); driveUpdate(); }
-    autoParkTick();
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   }, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
@@ -1033,7 +1086,6 @@ function navUpdate(p){
     $('#navThen').textContent = '';
     $('#navArrow').innerHTML = maneuverSvg('ARRIVE');
     say('Llegaste a destino');
-    if (travelMode === 'car' && !nav.sim) setTimeout(() => savePark(true), 1500);
     la('navUpdate', {dest:lastDest, arrow:0, dist:'Llegaste', msg:'Llegaste a destino', eta:Date.now(), rest:'', limit:null, arrived:true});
     setTimeout(stopNav, 4000);
     return;
@@ -1252,26 +1304,6 @@ $('#parkGo').onclick = () => {
 $('#parkDel').onclick = () => { store.set('park', null); drawPark(); setStatus('Listo, borré la ubicación del auto.'); };
 setInterval(updateParkInfo, 60000);
 
-/* Detección automática: si veníamos manejando y el auto se queda quieto, o la app se cierra
-   poco después de manejar, guardo el lugar solo. */
-let lastDriveT = 0, stillSince = 0, stillPos = null, lastFixPos = null;
-function autoParkTick(){
-  if (!me || travelMode !== 'car' || (nav && nav.sim)) return;
-  const now = Date.now(), kmh = mySpeed || 0;
-  lastFixPos = {lat:me.lat, lng:me.lng};
-  if (kmh > 18){ lastDriveT = now; stillSince = 0; stillPos = null; return; }
-  if (!lastDriveT || now - lastDriveT > 10 * 60000) return;      // no venía manejando
-  if (kmh < 4){
-    if (!stillSince || !stillPos || hav([stillPos.lat, stillPos.lng], [me.lat, me.lng]) > 40){ stillSince = now; stillPos = {lat:me.lat, lng:me.lng}; }
-    else if (now - stillSince > 4 * 60000 && !nav){ savePark(true, stillPos); lastDriveT = 0; }   // 4 min quieto
-  } else { stillSince = 0; stillPos = null; }
-}
-document.addEventListener('visibilitychange', () => {
-  // al cerrar o bloquear la app justo después de manejar
-  if (document.visibilityState === 'hidden' && lastDriveT && Date.now() - lastDriveT < 3 * 60000 && (mySpeed || 0) < 8 && lastFixPos && !(nav && nav.sim)){
-    savePark(true, lastFixPos); lastDriveT = 0;
-  }
-});
 /* Atajo del celular al desconectarse del Bluetooth del auto: abre la app con ?estacione */
 const wantPark = /[?&](estacione|park)\b/.test(location.search);
 if (wantPark){
