@@ -321,6 +321,7 @@ function initMap(){
     map.on('click', 'route-alt', e => { const i = e.features?.[0]?.properties?.i; if (i != null && !nav){ sel = i; draw(); } });
     startGps();
     loadBaseCams().then(loadAreaCams);
+    loadOneway();
   });
   map.on('moveend', () => { clearTimeout(camTimer); camTimer = setTimeout(loadAreaCams, 400); });
   map.on('rotate', updateNorth);
@@ -488,11 +489,95 @@ async function geocode(q){
   return {lat:hit.position.lat, lng:hit.position.lon};
 }
 
-async function fetchRoutes(from, to, alts){
+/* ---------- Cambios de mano recientes que el mapa todavía puede no tener ----------
+   TramBus T1 (CABA, sep–oct 2026). Sentido permitido: de "desde" hacia "hacia".
+   Fuentes: Gobierno de la Ciudad y prensa (Perfil, iProfesional, C5N). */
+const ONEWAY = [
+  {calle:'Avenida Honorio Pueyrredón', desde:'Avenida Ángel Gallardo', hacia:'Neuquén'},
+  {calle:'Avenida Acoyte', desde:'Neuquén', hacia:'Díaz Vélez', norte:true},
+  {calle:'Avenida La Plata', desde:'Quito', hacia:'Avenida Rivadavia'},
+  {calle:'José Mármol', desde:'Avenida Rivadavia', hacia:'Hipólito Yrigoyen'},
+  {calle:'Quito', desde:'Avenida La Plata', hacia:'Muñiz'},
+  {calle:'Pringles', desde:'Lezica', hacia:'Avenida Rivadavia'},
+  {calle:'Zañartú', desde:'Avenida La Plata', hacia:'Senillosa'},
+  {calle:'Gibson', desde:'Avenida La Plata', hacia:'Castro'},
+  {calle:'Juan Bautista Ambrosetti', desde:'Arturo Jauretche', hacia:'Avenida Rivadavia'},
+  {calle:'Balcarce', desde:'Yerbal', hacia:'Avenida Rivadavia'}
+];
+let onewaySegs = null, onewayLoading = null;
+async function crossPoint(a, b){
+  const q = `${a} & ${b}, Ciudad Autónoma de Buenos Aires`;
+  const d = await (await fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&limit=1&countrySet=AR&lat=-34.62&lon=-58.44`)).json();
+  const r = d.results?.[0];
+  return r ? [r.position.lat, r.position.lon] : null;
+}
+function loadOneway(){
+  if (onewaySegs) return Promise.resolve(onewaySegs);
+  if (onewayLoading) return onewayLoading;
+  onewayLoading = (async () => {
+    try{ const c = JSON.parse(localStorage.getItem('migps:oneway:v1') || 'null'); if (c){ onewaySegs = c; return c; } }catch{}
+    const segs = [];
+    for (const o of ONEWAY){
+      try{
+        let a = await crossPoint(o.calle, o.desde), b = await crossPoint(o.calle, o.hacia);
+        if (!a || !b) continue;
+        const len = hav(a, b);
+        if (len < 40 || len > 2500) continue;           // dato dudoso: lo ignoro
+        if (o.norte && b[0] < a[0]) [a, b] = [b, a];   // "sur → norte"
+        segs.push({calle:o.calle, a, b});
+      }catch{}
+    }
+    onewaySegs = segs;
+    if (segs.length) try{ localStorage.setItem('migps:oneway:v1', JSON.stringify(segs)); }catch{}
+    return segs;
+  })();
+  return onewayLoading;
+}
+// Devuelve puntos a mitad de cuadra donde la ruta va a contramano
+function wrongWay(path){
+  const out = [];
+  if (!onewaySegs) return out;
+  const k = Math.PI / 180;
+  for (const sg of onewaySegs){
+    const allowed = bearing(sg.a, sg.b);
+    const kx = 111320 * Math.cos(sg.a[0]*k), ky = 110540;
+    const dx = (sg.b[1]-sg.a[1])*kx, dy = (sg.b[0]-sg.a[0])*ky, L2 = dx*dx + dy*dy;
+    const near = p => {
+      const px = (p[1]-sg.a[1])*kx, py = (p[0]-sg.a[0])*ky;
+      const t = (px*dx + py*dy) / L2;
+      if (t < -0.02 || t > 1.02) return false;
+      return Math.hypot(px - t*dx, py - t*dy) < 22;
+    };
+    for (let i = 0; i < path.length - 1; i++){
+      const P = path[i], Q = path[i+1];
+      if (hav(P, Q) < 8 || !near(P) || !near(Q)) continue;
+      let diff = Math.abs(((bearing(P, Q) - allowed) % 360 + 540) % 360 - 180);
+      if (diff > 120) out.push([(P[0]+Q[0])/2, (P[1]+Q[1])/2]);
+    }
+  }
+  return out;
+}
+async function routeReq(from, to, alts, avoid){
   const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=car&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text&sectionType=speedLimit&language=es-ES`;
-  const r = await fetch(u); const data = await r.json();
+  if (!avoid.length) return fetch(u);
+  const d = .00012;   // ~12 m alrededor de cada punto a mitad de cuadra
+  return fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({avoidAreas:{rectangles:avoid.map(p => ({
+    southWestCorner:{latitude:p[0]-d, longitude:p[1]-d}, northEastCorner:{latitude:p[0]+d, longitude:p[1]+d}}))}})});
+}
+async function fetchRoutes(from, to, alts){
+  await Promise.race([loadOneway(), new Promise(r => setTimeout(r, 4000))]);
+  let avoid = [], data, r;
+  for (let tries = 0; tries < 3; tries++){
+    r = await routeReq(from, to, alts, avoid); data = await r.json();
+    if (!r.ok || !data.routes?.length) break;
+    const bad = data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
+    if (!bad.length) break;
+    avoid = avoid.concat(bad).slice(0, 10);
+  }
   if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
   if (!data.routes?.length) throw new Error('no encontré ruta a ese destino');
+  const ok = data.routes.filter(x => !wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))).length);
+  if (ok.length) data.routes = ok;
   return data.routes.map(x => {
     const path = x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]));
     const cum = [0];
