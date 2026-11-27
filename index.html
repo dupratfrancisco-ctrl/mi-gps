@@ -71,6 +71,8 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .sugg:empty{display:none}
 .sugg button{display:grid;grid-template-columns:34px 1fr auto;gap:2px 10px;align-items:center;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 12px;min-height:56px;cursor:pointer}
 .sugg button:last-child{border-bottom:0}
+.histHd{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 4px;color:var(--mute);font-size:13px;font-weight:700}
+.sugg .histClr{display:inline;min-height:0;border:0;padding:4px 0;background:none;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer}
 .sugg button:hover,.sugg button:focus-visible{background:var(--line)}
 .sugg .ic{grid-row:1/3;width:34px;height:34px;border-radius:50%;background:var(--line);display:grid;place-items:center}
 .sugg .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -334,17 +336,18 @@ function openSearch(){
   $('#searchView').classList.add('on');
   const i = $('#dest'); i.focus();                         // dentro del toque, así el iPhone abre el teclado
   try{ i.setSelectionRange(i.value.length, i.value.length); }catch{}
-  if (i.value.trim().length >= 3) loadSugg(i.value.trim());
+  if (i.value.trim().length >= 3) loadSugg(i.value.trim()); else showHist();
 }
 function closeSearch(){ $('#dest').blur(); $('#searchView').classList.remove('on'); }
 $('#openSearch').onclick = openSearch;
 $('#searchClose').onclick = closeSearch;
-$('#searchClear').onclick = () => { $('#dest').value = ''; hideSugg(); $('#dest').focus(); };
+$('#searchClear').onclick = () => { $('#dest').value = ''; suggSeq++; showHist(); $('#dest').focus(); };
 function setSearchLabel(t){ $('#openSearchTx').textContent = t || '¿A dónde vas?'; $('#openSearch').classList.toggle('has', !!t); }
 $('#searchForm').onsubmit = e => {
   e.preventDefault();
-  if (suggs.length){ pickSugg(0); return; }
-  const v = $('#dest').value.trim(); if (v){ closeSearch(); route(v); }
+  const v = $('#dest').value.trim(); if (!v) return;
+  if (suggs.length && !suggs[0].hist){ pickSugg(0); return; }
+  addHist({name:v}); closeSearch(); route(v);
 };
 
 /* ---------- Sugerencias mientras escribís ---------- */
@@ -355,6 +358,24 @@ const CAT = {'cafe':'Café','café':'Café','restaurant':'Restaurante','fast foo
 const CATRX = [[/cloth|fashion|boutique/, 'Ropa'], [/shoe|footwear/, 'Calzado'], [/jewel/, 'Joyería'], [/restaurant|food/, 'Restaurante'], [/caf/, 'Café'], [/bar|pub/, 'Bar'], [/shop|store|retail/, 'Comercio'], [/hotel|hostel/, 'Hotel'], [/hospital|clinic/, 'Salud'], [/school|university|college/, 'Educación'], [/parking/, 'Estacionamiento'], [/fuel|petrol|gas station/, 'Estación de servicio'], [/bank|atm/, 'Banco'], [/park|garden/, 'Parque'], [/gym|fitness|sport/, 'Deporte'], [/pharma|chemist/, 'Farmacia'], [/supermarket|grocery/, 'Supermercado'], [/bakery/, 'Panadería'], [/museum|gallery/, 'Museo'], [/church|place of worship/, 'Iglesia']];
 const catEs = c => { const k = (c || '').toLowerCase(); if (CAT[k]) return CAT[k]; for (const [rx, es] of CATRX) if (rx.test(k)) return es; return c ? c[0].toUpperCase() + c.slice(1) : ''; };
 function hideSugg(){ suggs = []; $('#sugg').innerHTML = ''; }
+/* Historial de búsquedas (queda guardado aunque cierres la app) */
+const CLOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+let hist = store.get('hist', []);
+function addHist(s){
+  const it = {name:s.name, addr:s.addr || '', cat:s.cat || '', isPoi:!!s.isPoi, pos:s.pos || null};
+  const k = norm(it.name + ' ' + it.addr);
+  hist = [it, ...hist.filter(h => norm(h.name + ' ' + h.addr) !== k)].slice(0, 15);
+  store.set('hist', hist);
+}
+function showHist(){
+  suggs = hist.map(h => ({...h, hist:true, dist:(me && h.pos) ? hav([me.lat, me.lng], [h.pos.lat, h.pos.lng]) : null}));
+  $('#sugg').innerHTML = suggs.length ? `<div class="histHd"><span>Recientes</span><button type="button" class="histClr" data-clr="1">Borrar historial</button></div>` + suggs.map((s, i) => `<button type="button" role="option" data-i="${i}">
+      <span class="ic">${CLOCK}</span>
+      <span class="nm">${esc(s.name)}</span>
+      <span class="km">${s.dist != null ? fmtKm(Math.round(s.dist)) : ''}</span>
+      <span class="ad">${esc([s.cat, s.addr].filter(Boolean).join(' · '))}</span>
+    </button>`).join('') : '';
+}
 /* Lugares corregidos a mano: nombre real y dirección verificada */
 const MY_PLACES = [
   {name:'Zadig & Voltaire Vintage', addr:'El Salvador 4701, Palermo Soho, CABA', cat:'Ropa', alias:['zadig', 'voltaire', 'sadig', 'zadig vintage']}
@@ -434,17 +455,21 @@ function pickSugg(i){
   const s = suggs[i]; if (!s) return;
   const label = s.isPoi ? `${s.name}, ${s.addr}` : `${s.name}${s.addr ? ', ' + s.addr : ''}`;
   $('#dest').value = label;
+  addHist(s);
   hideSugg();
   closeSearch();
-  route(label, s.pos);
+  route(label, s.pos || undefined);
 }
 $('#dest').addEventListener('input', () => {
   clearTimeout(suggTimer);
   const q = $('#dest').value.trim();
-  if (q.length < 3 || !apiKey){ hideSugg(); return; }
+  if (q.length < 3 || !apiKey){ clearTimeout(suggTimer); suggSeq++; if (!q) showHist(); else hideSugg(); return; }
   suggTimer = setTimeout(() => loadSugg(q), 280);
 });
-$('#sugg').onclick = e => { const b = e.target.closest('button'); if (b) pickSugg(+b.dataset.i); };
+$('#sugg').onclick = e => {
+  if (e.target.closest('[data-clr]')){ hist = []; store.set('hist', hist); showHist(); $('#dest').focus(); return; }
+  const b = e.target.closest('button[data-i]'); if (b) pickSugg(+b.dataset.i);
+};
 
 /* ---------- Mapa (TomTom + Leaflet) ---------- */
 const T = 'https://api.tomtom.com';
@@ -627,13 +652,16 @@ function startGps(){
     me = {lat:p.coords.latitude, lng:p.coords.longitude};
     const h = p.coords.heading;
     {
-      const t = p.timestamp || Date.now();
+      const t = Date.now();
       let v = p.coords.speed;                                   // m/s
+      // guardo las posiciones de los últimos 6 segundos para calcular la velocidad yo, si el GPS no la da
+      spdHist.push({lat:me.lat, lng:me.lng, t}); while (spdHist.length && t - spdHist[0].t > 6000) spdHist.shift();
       if (v == null || isNaN(v) || v < 0){
         v = null;
-        if (spdPrev){ const dt = (t - spdPrev.t) / 1000; if (dt >= 0.8) v = hav([spdPrev.lat, spdPrev.lng], [me.lat, me.lng]) / dt; }
+        const o = spdHist.find(x => t - x.t <= 5000 && t - x.t >= 1500);
+        if (o) v = hav([o.lat, o.lng], [me.lat, me.lng]) / ((t - o.t) / 1000);
+        else if (spdHist.length === 1) v = null;
       }
-      if (!spdPrev || (t - spdPrev.t) >= 800) spdPrev = {lat:me.lat, lng:me.lng, t};
       if (v != null){
         const kmh = v * 3.6;
         mySpeed = kmh < 3 ? 0 : (mySpeed ? mySpeed * 0.4 + kmh * 0.6 : kmh);
@@ -648,7 +676,7 @@ function startGps(){
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   };
   navigator.geolocation.watchPosition(onFix, () => setStatus('No pude obtener tu ubicación: activá el permiso de ubicación para esta página.'),
-    {enableHighAccuracy:true, maximumAge:5000});
+    {enableHighAccuracy:true, maximumAge:0});
   // la app de iPhone manda la ubicación cuando la pantalla no está visible
   window.__nativeLoc = (lat, lng, spd, crs) => {
     if (document.visibilityState !== 'hidden') return;
@@ -743,11 +771,11 @@ function osmLimitAt(p, heading){
 }
 
 /* ---------- Velocímetro y límite sin navegación ---------- */
-let spdPrev = null, spdT = 0;
+let spdHist = [], spdT = 0;
 // si hace rato que no llega una posición nueva, estás quieto: la velocidad vuelve a 0
 setInterval(() => {
   if (nav && nav.sim) return;
-  if (Date.now() - spdT > 4000 && mySpeed){
+  if (Date.now() - spdT > 7000 && mySpeed){
     mySpeed = 0;
     const d = $('#driveSpeed'); if (d) d.textContent = '0';
     const n = $('#navSpeed'); if (n) n.textContent = '0';
@@ -1014,7 +1042,7 @@ const iosBridge = window.webkit?.messageHandlers?.migps || null;
 function la(type, data){ try{ iosBridge && iosBridge.postMessage(Object.assign({type}, data)); }catch{} }
 
 /* ---------- Navegación paso a paso ---------- */
-let nav = null, voiceOn = true, wakeLock = null;
+let nav = null, voiceOn = store.get('voice', true) !== false, wakeLock = null;
 
 function hav(a, b){
   const R = 6371000, k = Math.PI / 180;
@@ -1409,8 +1437,10 @@ function toggleSim(){
 $('#go').onclick = startNav;
 $('#navExit').onclick = stopNav;
 $('#navSim').onclick = toggleSim;
+$('#navVoice').textContent = voiceOn ? '🔊' : '🔇';
 $('#navVoice').onclick = () => {
   voiceOn = !voiceOn;
+  store.set('voice', voiceOn);
   $('#navVoice').textContent = voiceOn ? '🔊' : '🔇';
   if (!voiceOn) try{ speechSynthesis.cancel(); }catch{}
 };
