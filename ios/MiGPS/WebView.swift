@@ -52,6 +52,25 @@ struct WebView: UIViewRepresentable {
             locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
             locationManager.activityType = .automotiveNavigation
             locationManager.requestWhenInUseAuthorization()
+            // Brújula del teléfono: usa el mismo permiso de ubicación, no hay que aceptar nada más
+            locationManager.headingFilter = 2
+            if CLLocationManager.headingAvailable() { locationManager.startUpdatingHeading() }
+        }
+
+        private var lastHeadingSent = Date.distantPast
+        func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+            guard let webView, Date().timeIntervalSince(lastHeadingSent) > 0.08 else { return }
+            let h = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+            guard h >= 0 else { return }
+            lastHeadingSent = Date()
+            webView.evaluateJavaScript("window.__nativeHeading && window.__nativeHeading(\(h))", completionHandler: nil)
+        }
+
+        // Si la página pide la brújula o el movimiento, se lo doy sin preguntar cada vez
+        @available(iOS 15.0, *)
+        func webView(_ webView: WKWebView, requestDeviceOrientationAndMotionPermissionFor origin: WKSecurityOrigin,
+                     initiatedByFrame frame: WKFrameInfo, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            decisionHandler(.grant)
         }
 
         // Mensajes de la página

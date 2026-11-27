@@ -1321,7 +1321,11 @@ function setMe(ll, deg){
 let meAnim = 0, meCur = null, meRot = 0, lastSetT = 0;
 /* ---------- Brújula: sin navegar (o parado), la flecha apunta para donde apuntás el celular ---------- */
 let compassDeg = null, compassT = 0, compassOn = false;
+let nativeHeadT = 0;
+// en la app del iPhone la brújula viene del teléfono directo, sin pedir permiso
+window.__nativeHeading = h => { if (h == null || isNaN(h)) return; compassDeg = (+h + 360) % 360; compassT = nativeHeadT = Date.now(); };
 function onOri(e){
+  if (Date.now() - nativeHeadT < 2000) return;
   let h = e.webkitCompassHeading;                               // iPhone
   if (h == null && e.absolute && e.alpha != null) h = 360 - e.alpha; // Android
   if (h == null || isNaN(h)) return;
