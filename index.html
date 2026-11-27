@@ -93,6 +93,9 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
 .chip{flex:none;min-height:44px;border-radius:22px;border:1px solid var(--line);background:var(--bg);padding:0 16px;font-weight:700;cursor:pointer}
 .chip{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;color:var(--ink)}
+.delChip{background:#e6261f1a!important;border-color:#e6261f!important;color:#e6261f!important}
+.delChip b{margin-left:4px}
+.doneChip{background:var(--blue)!important;border-color:var(--blue)!important;color:#fff!important}
 .addChip{border-style:dashed;color:var(--blue)!important;background:none}
 #favDlg .row .btn{flex:1}
 #favUseLast{width:100%;margin-top:8px}
@@ -342,14 +345,22 @@ $('#cfgSave').onclick = () => {
 };
 $('#btnCfg').onclick = openCfg;
 
+let chipEdit = false;
 function renderChips(){
-  const html = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('')
-    + `<button class="chip addChip" data-add="1" aria-label="Nuevo atajo">＋ Nuevo</button>`;
+  const html = chipEdit
+    ? favs.map((f, i) => `<button class="chip delChip" data-del="${i}" aria-label="Eliminar ${esc(f.name)}">${esc(f.name)} <b>✕</b></button>`).join('')
+      + `<button class="chip doneChip" data-done="1">Listo</button>`
+    : favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('')
+      + `<button class="chip addChip" data-add="1" aria-label="Nuevo atajo">＋ Nuevo</button>`
+      + (favs.length ? `<button class="chip addChip" data-edit="1">Eliminar</button>` : '');
   $('#chips').innerHTML = html; $('#chips2').innerHTML = html;
 }
 const chipClick = e => {
   const b = e.target.closest('.chip'); if (!b) return;
   if (b.dataset.add){ openFav(-1); return; }
+  if (b.dataset.edit){ chipEdit = true; renderChips(); return; }
+  if (b.dataset.done){ chipEdit = false; renderChips(); return; }
+  if (b.dataset.del != null){ favs.splice(+b.dataset.del, 1); store.set('favs', favs); if (!favs.length) chipEdit = false; renderChips(); return; }
   const f = favs[+b.dataset.i];
   if (!f.addr){ openFav(+b.dataset.i); return; }
   $('#dest').value = f.addr;
