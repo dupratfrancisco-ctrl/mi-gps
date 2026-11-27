@@ -972,8 +972,8 @@ function setDest(pos){
   destMarker = new maplibregl.Marker({element:el, anchor:'center'}).setLngLat([pos.lng, pos.lat]).addTo(map);
 }
 let jamMarkers = [];
-/* Zona de cada radar sobre la ruta (como Waze): unos 250 m antes de la cámara hasta pasarla */
-const CAM_ZONE = 250;
+/* Zona de cada radar sobre la ruta (como Waze): el último tramo antes de la cámara, unos 80 m */
+const CAM_ZONE = 80;
 let routeCamMarkers = [];
 function subPath(r, s0, s1){
   const out = [ll2(posAt(r, s0))];
@@ -987,7 +987,7 @@ function setCamZones(r, from = 0){
   const total = r ? r.cum[r.cum.length - 1] : 0;
   const cams = (r && travelMode === 'car' ? r.cams || [] : []).filter(c => c.along + 20 > from);
   src.setData({type:'FeatureCollection', features:cams.map(c => {
-    const a = Math.max(from, c.along - CAM_ZONE, 0), b = Math.min(total, c.along + 20);
+    const a = Math.max(from, c.along - CAM_ZONE, 0), b = Math.min(total, c.along + 8);
     return {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:subPath(r, a, b)}};
   }).filter(f => f.geometry.coordinates.length > 1)});
   const key = cams.map(c => c.along).join(',');
