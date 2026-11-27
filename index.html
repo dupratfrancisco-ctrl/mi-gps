@@ -647,43 +647,63 @@ async function checkDayNight(){
 
 async function buildStyle(k, night){
   const traffic = {
-    flow:{type:'raster', tiles:[`${T}/traffic/map/4/tile/flow/${night ? 'relative0-dark' : 'relative0'}/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22},
-    inc:{type:'raster', tiles:[`${T}/traffic/map/4/tile/incidents/${night ? 'night' : 's3'}/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22}
+    flow:{type:'raster', tiles:[`${T}/traffic/map/4/tile/flow/${night ? 'relative0-dark' : 'relative0'}/{z}/{x}/{y}.png?key=${k}`], tileSize:256, maxzoom:22}
   };
-  if (night){
-    // de noche: mapa oscuro
-    return {version:8, sources:{
-      base:{type:'raster', tiles:[`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
-      ...traffic,
-      labels:{type:'raster', tiles:[`${T}/map/1/tile/labels/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22}
-    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}, {id:'labels', type:'raster', source:'labels'}]};
-  }
   const trafficLayers = [
-    {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.85}}
+    {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':night ? .9 : .85}}
   ];   // sin las flechas de incidentes de TomTom: confundían con el sentido de las calles
   try{
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 6000);
     const st = await (await fetch('https://tiles.openfreemap.org/styles/liberty', {signal:ctl.signal})).json();
     for (const l of st.layers){
-      if (l.type === 'background') l.paint = {...(l.paint || {}), 'background-color':'#f1f0ec'};
+      const id = l.id, sl = l['source-layer'];
+      if (l.type === 'background') l.paint = {...(l.paint || {}), 'background-color':night ? '#12151b' : '#f1f0ec'};
       if (l.type === 'symbol' && l.layout && l.layout['text-size'] != null){
-        const roads = l['source-layer'] === 'transportation_name';
+        const roads = sl === 'transportation_name';
         l.layout['text-size'] = bigger(l.layout['text-size'], roads ? 1.45 : 1.15);
-        if (roads) l.paint = {...(l.paint || {}), 'text-color':'#4a4d55', 'text-halo-color':'#ffffff', 'text-halo-width':2};
+        // nombres de calles en negro con borde blanco, de día y de noche
+        if (roads) l.paint = {...(l.paint || {}), 'text-color':'#000000', 'text-halo-color':'#ffffff', 'text-halo-width':2.2};
+        else if (night) l.paint = {...(l.paint || {}), 'text-color':'#c9ced8', 'text-halo-color':'#12151b', 'text-halo-width':1.5};
       }
-      if (/oneway/.test(l.id)) l.layout = {...(l.layout || {}), visibility:'none'};   // sin flechitas de mano (datos viejos)
+      if (/one_?way/.test(id)) l.layout = {...(l.layout || {}), visibility:'none'};   // sin flechitas de mano (datos viejos)
       if (l.type === 'fill-extrusion') l.layout = {...(l.layout || {}), visibility:'none'};   // sin edificios 3D: más limpio
+      if (night){
+        // de noche: el mismo mapa, en oscuro
+        if (l.type === 'raster') l.layout = {...(l.layout || {}), visibility:'none'};
+        if (l.type === 'fill'){
+          const c = sl === 'water' ? '#17283b' : id === 'park' || /wood|grass|wetland/.test(id) ? '#15241c' : sl === 'building' ? '#1d222b' : id === 'road_area_pattern' ? null : '#161a21';
+          if (c) l.paint = {'fill-color':c, 'fill-opacity':1}; else l.layout = {...(l.layout || {}), visibility:'none'};
+        }
+        if (l.type === 'line'){
+          const p = {...(l.paint || {})};
+          if (sl === 'waterway') p['line-color'] = '#17283b';
+          else if (sl === 'transportation'){
+            if (/rail/.test(id)) p['line-color'] = '#2a2f38';
+            else if (/casing/.test(id)) p['line-color'] = '#0a0c10';
+            else if (/motorway|trunk_primary/.test(id)) p['line-color'] = '#4a5263';
+            else if (/secondary_tertiary/.test(id)) p['line-color'] = '#3d4452';
+            else p['line-color'] = '#323844';
+            delete p['line-pattern'];
+          } else if (id === 'park_outline') l.layout = {...(l.layout || {}), visibility:'none'};
+          else if (sl === 'boundary') p['line-color'] = '#4a5263';
+          else if (sl === 'aeroway') p['line-color'] = '#2a2f38';
+          l.paint = p;
+        }
+      }
     }
     Object.assign(st.sources, traffic);
-    const firstSymbol = st.layers.findIndex(l => l.type === 'symbol');
-    st.layers.splice(firstSymbol < 0 ? st.layers.length : firstSymbol, 0, ...trafficLayers);
+    // el tránsito va arriba de calles, puentes y edificios, pero debajo de los nombres
+    let lastShape = -1;
+    st.layers.forEach((l, i) => { if (l.type !== 'symbol') lastShape = i; });
+    st.layers.splice(lastShape + 1, 0, ...trafficLayers);
     return st;
   }catch{
     // si no carga el mapa de OpenStreetMap, uso el de TomTom
+    const v = night ? 'night' : 'main';
     return {version:8, sources:{
-      base:{type:'raster', tiles:[`${T}/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
+      base:{type:'raster', tiles:[`${T}/map/1/tile/basic/${v}/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
       ...traffic,
-      labels:{type:'raster', tiles:[`${T}/map/1/tile/labels/main/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22}
+      labels:{type:'raster', tiles:[`${T}/map/1/tile/labels/${v}/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22}
     }, layers:[{id:'base', type:'raster', source:'base'}, ...trafficLayers, {id:'labels', type:'raster', source:'labels'}]};
   }
 }
@@ -718,7 +738,9 @@ async function initMap(){
 function addAppLayers(){
   if (map.getSource('routes')) return;
   // orden: la flecha arriba de todo, después los nombres de calles y abajo los colores de la ruta y el tránsito
-  const before = (map.getStyle().layers.find(l => l.type === 'symbol') || map.getLayer('labels') || {}).id;
+  const lays = map.getStyle().layers;
+  let lastShape = -1; lays.forEach((l, i) => { if (l.type !== 'symbol' && l.id !== 'labels') lastShape = i; });
+  const before = lays[lastShape + 1] ? lays[lastShape + 1].id : undefined;
     map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#9aa8bd', 'line-width':7, 'line-opacity':.85}}, before);
