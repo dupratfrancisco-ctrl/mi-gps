@@ -733,6 +733,9 @@ function addAppLayers(){
       layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 12, 17, 22]}});
     map.addLayer({id:'route-cam', type:'line', source:'rcams',
       layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 7], 'line-dasharray':[1.2, .8]}});
+    map.addSource('camzone', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({id:'camzone-fill', type:'fill', source:'camzone', minzoom:12, paint:{'fill-color':'#7c3aed', 'fill-opacity':.18}});
+    map.addLayer({id:'camzone-line', type:'line', source:'camzone', minzoom:12, paint:{'line-color':'#7c3aed', 'line-width':2, 'line-opacity':.9}});
     map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
@@ -1078,6 +1081,13 @@ function setDest(pos){
 let jamMarkers = [];
 /* Zona de cada radar sobre la ruta (como Waze): el último tramo antes de la cámara, unos 80 m */
 const CAM_ZONE = 80;
+/* Círculo alrededor de cada cámara: hasta dónde llega el radar (unos 50 m) */
+const CAM_R = 50;
+function camCircle(pt, m){
+  const k = Math.PI / 180, dLat = m / 110540, dLng = m / (111320 * Math.cos(pt[0] * k)), ring = [];
+  for (let i = 0; i <= 32; i++){ const a = i / 32 * 2 * Math.PI; ring.push([pt[1] + dLng * Math.cos(a), pt[0] + dLat * Math.sin(a)]); }
+  return {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[ring]}};
+}
 let routeCamMarkers = [];
 function subPath(r, s0, s1){
   const out = [ll2(posAt(r, s0))];
@@ -1090,10 +1100,7 @@ function setCamZones(r, from = 0){
   const src = map && map.getSource('rcams'); if (!src) return;
   const total = r ? r.cum[r.cum.length - 1] : 0;
   const cams = (r && travelMode === 'car' ? r.cams || [] : []).filter(c => c.along + 20 > from);
-  src.setData({type:'FeatureCollection', features:cams.map(c => {
-    const a = Math.max(from, c.along - CAM_ZONE, 0), b = Math.min(total, c.along + 8);
-    return {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:subPath(r, a, b)}};
-  }).filter(f => f.geometry.coordinates.length > 1)});
+  src.setData({type:'FeatureCollection', features:[]});
   const key = cams.map(c => c.along).join(',');
   if (key === setCamZones.key) return;
   setCamZones.key = key;
@@ -1224,6 +1231,8 @@ function addCams(list){
     const c = {id:n.id, pt:[n.lat, n.lon], max:parseInt(n.tags?.maxspeed) || null};
     camStore.set(n.id, c);
   }
+  const zs = map && map.getSource('camzone');
+  if (zs) zs.setData({type:'FeatureCollection', features:[...camStore.values()].map(c => camCircle(c.pt, CAM_R))});
   const src = map && map.getSource('cams');
   if (src) src.setData({type:'FeatureCollection', features:[...camStore.values()].map(c => ({type:'Feature',
     properties:{max:c.max ? String(c.max) : ''}, geometry:{type:'Point', coordinates:ll2(c.pt)}}))});
