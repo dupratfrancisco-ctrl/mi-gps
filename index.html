@@ -553,17 +553,17 @@ function addAppLayers(){
   if (map.getSource('routes')) return;
     map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#b9a3ff', 'line-width':7, 'line-opacity':.85}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#9aa8bd', 'line-width':7, 'line-opacity':.85}});
     map.addSource('rdone', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-done', type:'line', source:'rdone',
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#7a3cff', 'line-opacity':.28, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#6b7280', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
     map.addLayer({id:'route-casing', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#3b1596', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 9, 17, 16]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#1d2433', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 9, 17, 16]}});
     map.addLayer({id:'route-main', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#7a3cff', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#22c55e', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
     map.addSource('rtraffic', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-traffic', type:'line', source:'rtraffic',
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':['get', 'c'], 'line-width':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 7], 'line-offset':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 9]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':['get', 'c'], 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
     map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
@@ -893,13 +893,23 @@ function setDest(pos){
   destMarker = new maplibregl.Marker({element:el, anchor:'center'}).setLngLat([pos.lng, pos.lat]).addTo(map);
 }
 let jamMarkers = [];
+const jamCol = j => j.cat === 'ROAD_CLOSURE' ? '#7a0000' : j.m >= 4 ? '#7a0000' : j.m === 3 ? '#e6261f' : j.m === 2 ? '#ff7a1a' : '#ffb02e';
+function trafficData(r, from, at){
+  const feats = [];
+  for (const j of r.jams || []){
+    if (j.e <= from || j.e <= j.s) continue;
+    const s0 = Math.max(j.s, from);
+    const coords = r.path.slice(s0 + (at && s0 === from ? 1 : 0), j.e + 1).map(ll2);
+    if (at && j.s <= from) coords.unshift(ll2(at));
+    if (coords.length > 1) feats.push({type:'Feature', properties:{c:jamCol(j)}, geometry:{type:'LineString', coordinates:coords}});
+  }
+  return {type:'FeatureCollection', features:feats};
+}
 function setTrafficOnRoute(r){
   jamMarkers.forEach(m => m.remove()); jamMarkers = [];
   const src = map && map.getSource('rtraffic'); if (!src) return;
   if (!r || !r.jams){ src.setData({type:'FeatureCollection', features:[]}); return; }
-  const col = m => m >= 3 ? '#e6261f' : m === 2 ? '#ff7a1a' : '#ffb02e';
-  src.setData({type:'FeatureCollection', features:r.jams.filter(j => j.e > j.s).map(j => ({type:'Feature', properties:{c:col(j.m)},
-    geometry:{type:'LineString', coordinates:r.path.slice(j.s, j.e + 1).map(ll2)}}))});
+  src.setData(trafficData(r, 0, null));
   for (const j of r.jams){
     if (j.m < 2 && j.cat !== 'ROAD_CLOSURE') continue;
     const p = r.path[j.s]; if (!p) continue;
@@ -919,6 +929,7 @@ function setProgress(r, i, at){
   done.setData({type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[...r.path.slice(0, i + 1).map(ll2), p]}});
   main.setData({type:'FeatureCollection', features:[{type:'Feature', properties:{sel:true, i:0},
     geometry:{type:'LineString', coordinates:[p, ...r.path.slice(i + 1).map(ll2)]}}]});
+  const tr = map.getSource('rtraffic'); if (tr) tr.setData(trafficData(r, i, at));
 }
 function setRouteLines(){
   setTrafficOnRoute(routes[sel]);
@@ -1233,7 +1244,6 @@ function navUpdate(p){
   const sp = loc.off < 35 ? posAt(r, loc.along) : null;
   const vis = sp ? [sp.lat, sp.lng] : pt;
   if (sp && Math.abs(loc.along - (nav.progAt ?? -99)) > 3){ setProgress(r, loc.i, vis); nav.progAt = loc.along; }
-  flowCheck(vis);
   const animDur = setMe(vis, deg);
   myHeading = deg;
   nav.last = {pt:vis, deg};
