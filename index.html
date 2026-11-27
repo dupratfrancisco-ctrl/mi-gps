@@ -59,6 +59,10 @@ button,input{font:inherit;color:inherit}
 .fakeSearch{width:100%;display:flex;align-items:center;gap:10px;min-height:52px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--mute);padding:0 14px;font-size:16px;cursor:pointer;text-align:left}
 .fakeSearch span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fakeSearch.has{color:var(--ink);font-weight:700}
+.searchRow{display:flex;gap:8px;align-items:stretch}
+.searchRow .fakeSearch{flex:1;min-width:0}
+.cancelDest{display:none;flex:none;width:52px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);place-items:center;cursor:pointer}
+.fakeSearch.has + .cancelDest{display:grid}
 .searchView{position:fixed;inset:0;z-index:30;background:var(--panel);display:none;flex-direction:column;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));overflow:auto}
 .searchView.on{display:flex}
 .searchView .sugg{border:0;background:none;margin-top:6px}
@@ -202,10 +206,13 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
 
 <section class="sheet" id="sheet">
   <div class="grab"></div>
+  <div class="searchRow">
   <button class="fakeSearch" id="openSearch" type="button">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
     <span id="openSearchTx">¿A dónde vas?</span>
   </button>
+  <button class="cancelDest" id="cancelDest" type="button" aria-label="Cancelar búsqueda"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
   <div class="when">
     <select id="whenMode" aria-label="Cuándo salís">
       <option value="now">Salir ahora</option>
@@ -1138,6 +1145,12 @@ function setRouteLines(){
   src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
     geometry:{type:'LineString', coordinates:r.path.map(ll2)}}))});
 }
+$('#cancelDest').onclick = () => {
+  clearRoutes(); setSearchLabel(''); $('#dest').value = ''; lastDest = ''; lastDestPos = null;
+  try{ clearInterval(refreshTimer); clearTimeout(refreshTimer); }catch{}
+  setStatus('Listo. Elegí un destino.');
+  if (me && map) moveTo([me.lat, me.lng], 15);
+};
 function clearRoutes(){ routes = []; setRouteLines(); setDest(null); if (!nav) setSearchLabel(''); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
 
 function draw(){
