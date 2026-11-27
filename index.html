@@ -72,6 +72,10 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .when select{flex:1 1 150px}
 .when input{flex:1 1 190px;color-scheme:light}
 .route .plan{grid-column:1/-1;color:var(--amber);font-weight:700;font-size:14px}
+.modes{display:flex;gap:6px;margin-top:10px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:4px}
+.modes button{flex:1;min-height:42px;border:0;border-radius:10px;background:none;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;color:var(--mute)}
+.modes button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 4px #0002}
+.modes svg{width:20px;height:20px}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
 .chip{flex:none;min-height:44px;border-radius:22px;border:1px solid var(--line);background:var(--bg);padding:0 16px;font-weight:700;cursor:pointer}
 .status{color:var(--mute);font-size:14px;margin:10px 2px 0}
@@ -166,6 +170,11 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
       <option value="arrive">Llegar a las…</option>
     </select>
     <input type="datetime-local" id="whenTime" class="hidden" aria-label="Día y hora">
+  </div>
+  <div class="modes" id="modes" role="tablist" aria-label="Cómo vas">
+    <button type="button" data-m="car" role="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11v6.5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1V17H8v.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V11zm2.2-.5h9.6l-1-2.8H8.2l-1 2.8zM7.5 15a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm9 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>Auto</button>
+    <button type="button" data-m="pedestrian" role="tab"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="13" cy="4" r="2"/><path d="M10.5 8.5l2.6-.9a2 2 0 0 1 2.3.9l1.4 2.4 2.2 1.1-.7 1.4-2.7-1.3-.9-1.5-.8 3.4 2.1 2.3V21h-1.6v-4.1l-2.2-2.2-.9 3.4L9 21.5l-1.4-.8 2.1-3.3 1.6-6.4-1.6.6-1.1 2.6-1.5-.6 1.4-3.4z"/></svg>A pie</button>
+    <button type="button" data-m="bicycle" role="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h5l3 7M10 9l3 7M13 6h3"/></svg>Bici</button>
   </div>
   <div class="chips" id="chips"></div>
   <div class="legend"><span><i style="background:#2ecc71"></i>Fluido</span><span><i style="background:#ff9f1a"></i>Moderado</span><span><i style="background:#e6261f"></i>Pesado</span><span><i style="background:#7a0000"></i>Detenido</span><span><i style="background:#e6261f;border-radius:50%;width:10px;height:10px"></i>Radar</span><span>⛔ Corte</span></div>
@@ -791,6 +800,14 @@ function wrongWay(path){
   return out;
 }
 let travelMode = 'car';
+let selMode = (() => { const v = store.get('mode', 'car'); return ['car', 'pedestrian', 'bicycle'].includes(v) ? v : 'car'; })();
+function paintModes(){ document.querySelectorAll('#modes button').forEach(b => { b.classList.toggle('on', b.dataset.m === selMode); b.setAttribute('aria-selected', b.dataset.m === selMode); }); }
+document.getElementById('modes').onclick = e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.m === selMode) return;
+  selMode = b.dataset.m; store.set('mode', selMode); paintModes();
+  if (lastDest && destPos && !nav) route(lastDest, destPos);
+};
+paintModes();
 async function routeReq(from, to, alts, avoid, when){
   const tq = when ? `&${when.mode === 'arrive' ? 'arriveAt' : 'departAt'}=${encodeURIComponent(when.date.toISOString().slice(0, 19) + 'Z')}` : '';
   const u = `${T}/routing/1/calculateRoute/${from.lat},${from.lng}:${to.lat},${to.lng}/json?key=${encodeURIComponent(apiKey)}&traffic=true&travelMode=${travelMode}&routeType=fastest&maxAlternatives=${alts}&computeTravelTimeFor=all&instructionsType=text${travelMode === 'car' ? '&sectionType=speedLimit&sectionType=traffic' : ''}&language=es-ES${tq}`;
@@ -805,13 +822,13 @@ async function fetchRoutes(from, to, alts, when){
   for (let tries = 0; tries < 4; tries++){
     r = await routeReq(from, to, alts, avoid, when); data = await r.json();
     if (!r.ok || !data.routes?.length) break;
-    const bad = travelMode === 'pedestrian' ? [] : data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
+    const bad = travelMode !== 'car' ? [] : data.routes.flatMap(x => wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))));
     if (!bad.length) break;
     avoid = avoid.concat(bad).slice(0, 10);
   }
   if (!r.ok) throw new Error(data.error?.description || data.detailedError?.message || 'Error ' + r.status);
   if (!data.routes?.length) throw new Error('no encontré ruta a ese destino');
-  const ok = travelMode === 'pedestrian' ? data.routes : data.routes.filter(x => !wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))).length);
+  const ok = travelMode !== 'car' ? data.routes : data.routes.filter(x => !wrongWay(x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]))).length);
   if (ok.length) data.routes = ok;
   return data.routes.map(x => {
     const path = x.legs.flatMap(l => l.points.map(p => [p.latitude, p.longitude]));
@@ -835,7 +852,7 @@ async function fetchRoutes(from, to, alts, when){
 }
 
 async function route(dest, pos, opts = {}){
-  travelMode = opts.walk ? 'pedestrian' : 'car';
+  travelMode = opts.walk ? 'pedestrian' : selMode;
   if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
   lastDest = dest;
   const when = getWhen();
@@ -920,8 +937,9 @@ function draw(){
     const tag = mins >= 10 ? `<span class="tag" style="background:var(--red);color:#fff">+${mins} min tráfico</span>`
               : mins >= 3 ? `<span class="tag" style="background:var(--amber)">+${mins} min tráfico</span>`
               : `<span class="tag" style="background:var(--green);color:#fff">fluido</span>`;
+    const tagShown = travelMode === 'car' ? tag : '';
     return `<button class="route ${i === sel ? 'sel' : ''}" data-i="${i}">
-      <span class="t">${fmtMin(r.dur)}${tag}</span>
+      <span class="t">${fmtMin(r.dur)}${tagShown}</span>
       <span class="eta">Llegás ${r.when && r.arr ? fmtDia(r.arr) : fmtHora(new Date(Date.now() + r.dur * 1000))}</span>${r.when && r.dep ? `<span class="plan">Salí ${fmtDia(r.dep)}</span>` : ''}
       <span class="sub">${fmtKm(r.dist)}${i === 0 ? ' · la más rápida' : ''}</span>
     </button>`;
@@ -1169,7 +1187,7 @@ function navUpdate(p){
   osmPrefetch(pt[0], pt[1]);
   { const ahead = posAt(r, Math.min(loc.along + 800, r.cum[r.cum.length - 1])); osmPrefetch(ahead.lat, ahead.lng); }
   const segA = r.path[loc.i], segB = r.path[loc.i + 1] || segA;
-  const limV = nav.curLimit = travelMode === 'pedestrian' ? null : osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
+  const limV = nav.curLimit = travelMode !== 'car' ? null : osmLimitAt(pt, segA === segB ? myHeading : bearing(segA, segB)) || fixLimit(limTT ? limTT.v : null, curStreet);
   const lim = limV ? {v:limV} : null;
   const limEl = $('#navLimit');
   if (lim){ limEl.textContent = U(lim.v); limEl.classList.remove('none'); } else limEl.classList.add('none');
@@ -1180,7 +1198,7 @@ function navUpdate(p){
   if (over && Date.now() - (nav.overSaid || 0) > 30000){ say(`Cuidado, el límite es ${U(lim.v)}`); nav.overSaid = Date.now(); }
 
   // radares
-  const cam = travelMode === 'pedestrian' ? null : r.cams.find(c => c.along > loc.along - 10);
+  const cam = travelMode !== 'car' ? null : r.cams.find(c => c.along > loc.along - 10);
   const radarEl = $('#navRadar');
   if (cam){
     const dc = (cam.along - loc.along) * scale;
@@ -1281,7 +1299,7 @@ function toggleSim(){
     if (!nav) return;
     const now = performance.now(), dt = Math.min(.5, (now - tLast) / 1000); tLast = now;
     if (Math.random() < .02) cruise = .85 + Math.random() * .17;
-    let target = travelMode === 'pedestrian' ? 1.4 * cruise : ((nav.curLimit || 40) / 3.6) * cruise;
+    let target = travelMode === 'pedestrian' ? 1.4 * cruise : travelMode === 'bicycle' ? 4.5 * cruise : ((nav.curLimit || 40) / 3.6) * cruise;
     const turn = nav.nextMan && !/STRAIGHT|ARRIVE|DEPART|KEEP|BEAR|MOTORWAY|EXIT|FREEWAY|HIGHWAY/.test(nav.nextMan);
     if (turn && nav.dNext != null){
       const slow = 5.5;                       // ~20 km/h para doblar
