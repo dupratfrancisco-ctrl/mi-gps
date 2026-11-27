@@ -69,6 +69,9 @@ form.search{display:flex;gap:8px;align-items:center}
 form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--bg);padding:0 14px;font-size:16px}
 .sugg{display:grid;margin-top:8px;border-radius:14px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
 .sugg:empty{display:none}
+.favSugg{max-height:40vh;overflow-y:auto}
+.favPicked{color:var(--green);font-size:13px;font-weight:700;margin-top:6px}
+.favPicked:empty{display:none}
 .sugg button{display:grid;grid-template-columns:34px 1fr auto;gap:2px 10px;align-items:center;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 12px;min-height:56px;cursor:pointer}
 .sugg button:last-child{border-bottom:0}
 .histHd{display:flex;align-items:center;justify-content:space-between;padding:10px 12px 4px;color:var(--mute);font-size:13px;font-weight:700}
@@ -255,7 +258,9 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   <label for="favN">Nombre</label>
   <input id="favN" type="text" placeholder="Ej: Gimnasio" autocomplete="off">
   <label for="favA">Dirección</label>
-  <input id="favA" type="text" placeholder="Calle y número, o el nombre del lugar" autocomplete="off">
+  <input id="favA" type="text" placeholder="Escribí y elegí de la lista" autocomplete="off" autocorrect="off" spellcheck="false">
+  <div class="sugg favSugg" id="favSugg" role="listbox"></div>
+  <div class="favPicked" id="favPicked"></div>
   <button class="btn" id="favUseLast" type="button">Usar el último destino</button>
   <div class="row">
     <button class="btn" id="favDel" type="button">Borrar</button>
@@ -304,7 +309,7 @@ let favs = store.get('favs', [
   {name:'Facu', addr:'Universidad de Palermo, Mario Bravo 1050, CABA'},
   {name:'Laburo', addr:''}
 ]);
-let map, meMarker, me = null, routes = [], sel = 0, lastDest = '', refreshTimer;
+let map, meMarker, me = null, routes = [], sel = 0, lastDest = '', lastDestPos = null, refreshTimer;
 
 const setStatus = t => $('#status').textContent = t;
 
@@ -348,9 +353,9 @@ const chipClick = e => {
   const f = favs[+b.dataset.i];
   if (!f.addr){ openFav(+b.dataset.i); return; }
   $('#dest').value = f.addr;
-  addHist({name:f.addr, cat:f.name});
+  addHist({name:f.addr, cat:f.name, pos:f.pos});
   closeSearch();
-  route(f.addr);
+  route(f.addr, f.pos || undefined);
 };
 $('#chips').onclick = chipClick; $('#chips2').onclick = chipClick;
 /* Crear o editar un atajo (mantené apretado un atajo para editarlo) */
@@ -360,18 +365,36 @@ function openFav(i){
   const f = i >= 0 ? favs[i] : {name:'', addr:''};
   $('#favDlgT').textContent = i >= 0 ? `Editar ${f.name}` : 'Nuevo atajo';
   $('#favN').value = f.name; $('#favA').value = f.addr;
+  favPos = f.pos || null; favSuggs = []; $('#favSugg').innerHTML = '';
+  $('#favPicked').textContent = favPos ? '✓ Lugar elegido' : '';
   $('#favDel').style.display = i >= 0 ? '' : 'none';
   $('#favUseLast').style.display = lastDest ? '' : 'none';
   $('#favDlg').showModal();
   setTimeout(() => (f.name ? $('#favA') : $('#favN')).focus(), 50);
 }
-$('#favUseLast').onclick = () => { $('#favA').value = lastDest; };
+let favPos = null, favSuggs = [], favSeq = 0, favTimer;
+$('#favUseLast').onclick = () => { $('#favA').value = lastDest; favPos = lastDestPos; favSeq++; $('#favSugg').innerHTML = ''; $('#favPicked').textContent = favPos ? '✓ Lugar elegido' : ''; };
+$('#favA').addEventListener('input', () => {
+  favPos = null; $('#favPicked').textContent = '';
+  clearTimeout(favTimer);
+  const q = $('#favA').value.trim();
+  if (q.length < 3 || !apiKey){ favSeq++; $('#favSugg').innerHTML = ''; return; }
+  favTimer = setTimeout(() => loadSugg(q, true), 280);
+});
+$('#favSugg').onclick = e => {
+  const b = e.target.closest('button[data-i]'); if (!b) return;
+  const s = favSuggs[+b.dataset.i]; if (!s) return;
+  $('#favA').value = s.isPoi ? `${s.name}, ${s.addr}` : `${s.name}${s.addr ? ', ' + s.addr : ''}`;
+  favPos = s.pos; favSeq++; $('#favSugg').innerHTML = '';
+  $('#favPicked').textContent = '✓ Lugar elegido';
+};
 $('#favCancel').onclick = () => $('#favDlg').close();
 $('#favDel').onclick = () => { if (favEdit >= 0){ favs.splice(favEdit, 1); store.set('favs', favs); renderChips(); } $('#favDlg').close(); };
 $('#favOk').onclick = () => {
   const n = $('#favN').value.trim(), a = $('#favA').value.trim();
   if (!n){ $('#favN').focus(); return; }
-  if (favEdit >= 0) favs[favEdit] = {name:n, addr:a}; else favs.push({name:n, addr:a});
+  const f = {name:n, addr:a}; if (a && favPos) f.pos = favPos;
+  if (favEdit >= 0) favs[favEdit] = f; else favs.push(f);
   store.set('favs', favs); renderChips(); $('#favDlg').close();
 };
 // mantener apretado (o clic derecho) un atajo para editarlo
@@ -467,8 +490,8 @@ async function photonHits(q){
     });
   }catch{ return []; }
 }
-async function loadSugg(q){
-  const seq = ++suggSeq;
+async function loadSugg(q, fav){
+  const seq = fav ? ++favSeq : ++suggSeq;
   const bias = me ? `&lat=${me.lat}&lon=${me.lng}` : '&lat=-34.6037&lon=-58.3816';
   try{
     const [mine, tt, ph] = await Promise.all([
@@ -476,7 +499,7 @@ async function loadSugg(q){
       fetch(`${T}/search/2/search/${encodeURIComponent(q)}.json?key=${encodeURIComponent(apiKey)}&typeahead=true&limit=8&language=es-419${bias}`).then(r => r.json()).catch(() => ({})),
       photonHits(q)
     ]);
-    if (seq !== suggSeq) return;
+    if (seq !== (fav ? favSeq : suggSeq)) return;
     const fromTT = (tt.results || []).map(x => {
       const a = x.address || {};
       const poi = x.poi?.name;
@@ -493,13 +516,14 @@ async function loadSugg(q){
     const nq = norm(q);
     const score = s => (norm(s.name).includes(nq) ? 0 : 1) * 1e6 + (s.dist ?? 5e5);
     const all = [...mine, ...[...fromTT, ...ph].sort((a, b) => score(a) - score(b))];
-    suggs = [];
+    const list = [];
     for (const s of all){
-      if (suggs.some(o => hav([o.pos.lat, o.pos.lng], [s.pos.lat, s.pos.lng]) < 60 && (norm(o.name).includes(norm(s.name).split(' ')[0]) || norm(s.name).includes(norm(o.name).split(' ')[0])))) continue;
-      suggs.push(s);
-      if (suggs.length >= 8) break;
+      if (list.some(o => hav([o.pos.lat, o.pos.lng], [s.pos.lat, s.pos.lng]) < 60 && (norm(o.name).includes(norm(s.name).split(' ')[0]) || norm(s.name).includes(norm(o.name).split(' ')[0])))) continue;
+      list.push(s);
+      if (list.length >= 8) break;
     }
-    $('#sugg').innerHTML = suggs.map((s, i) => `<button type="button" role="option" data-i="${i}">
+    if (fav) favSuggs = list; else suggs = list;
+    $(fav ? '#favSugg' : '#sugg').innerHTML = list.map((s, i) => `<button type="button" role="option" data-i="${i}">
       <span class="ic">${s.isPoi ? SHOP : PIN}</span>
       <span class="nm">${esc(s.name)}</span>
       <span class="km">${s.dist != null ? fmtKm(Math.round(s.dist)) : ''}</span>
@@ -992,13 +1016,14 @@ async function route(dest, pos, opts = {}){
   travelMode = opts.walk ? 'pedestrian' : selMode;
   setSearchLabel(dest);
   if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
-  lastDest = dest;
+  lastDest = dest; lastDestPos = pos || null;
   const when = getWhen();
   if (when === false) return;
   setStatus(when ? 'Calculando con el tráfico previsto para ese horario…' : 'Calculando con el tráfico de ahora…');
   try{
     hideSugg && hideSugg();
     destPos = pos || await geocode(dest);
+    if (lastDest === dest) lastDestPos = destPos;
     routes = await fetchRoutes(me, destPos, 2, when);
     routes.forEach(r => r.when = when);
     sel = 0;
