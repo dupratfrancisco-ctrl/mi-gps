@@ -95,6 +95,10 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .speed small{font-size:7.5px;line-height:1;color:#555;margin-top:1px}
 .speed.over{background:var(--red);border-color:var(--red);color:#fff}
 .speed.over small{color:#fff}
+.flowPill{position:fixed;right:10px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:6;display:none;align-items:center;gap:8px;background:var(--panel);color:var(--ink);border-radius:14px;padding:9px 13px;font-weight:700;font-size:14px;box-shadow:0 4px 14px #0004;max-width:62vw}
+body.nav .flowPill.on{display:flex}
+.flowPill i{flex:none;width:12px;height:12px;border-radius:50%}
+.flowPill span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .recenter{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));z-index:7;display:none;min-height:48px;padding:0 22px;border:0;border-radius:24px;background:#0a5cff;color:#fff;font:inherit;font-weight:800;font-size:17px;box-shadow:0 6px 18px #000a;cursor:pointer}
 body.nav .recenter.on{display:block}
 .radar{position:fixed;left:10px;z-index:6;bottom:calc(92px + env(safe-area-inset-bottom));background:var(--red);color:#fff;font-weight:800;border-radius:14px;padding:10px 14px;box-shadow:0 4px 14px #0008;display:none}
@@ -199,6 +203,7 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   </div>
 </div>
 <div class="radar" id="navRadar">RADAR</div>
+<div class="flowPill" id="flowPill" aria-live="polite"><i></i><span></span></div>
 <button class="recenter" id="recenter" type="button">◎ Centrar</button>
 <div class="navBot" id="navBot">
   <div class="limit none" id="navLimit" aria-label="Límite de velocidad"></div>
@@ -1228,6 +1233,7 @@ function navUpdate(p){
   const sp = loc.off < 35 ? posAt(r, loc.along) : null;
   const vis = sp ? [sp.lat, sp.lng] : pt;
   if (sp && Math.abs(loc.along - (nav.progAt ?? -99)) > 3){ setProgress(r, loc.i, vis); nav.progAt = loc.along; }
+  flowCheck(vis);
   const animDur = setMe(vis, deg);
   myHeading = deg;
   nav.last = {pt:vis, deg};
@@ -1271,7 +1277,36 @@ $('#recenter').onclick = () => {
   $('#recenter').classList.remove('on');
   if (nav.last) follow(nav.last.pt, nav.last.deg, 700);
 };
+/* Tránsito en la cuadra por donde vas (TomTom Traffic Flow) */
+let flowT = 0, flowAt = null, flowBusy = false;
+async function flowCheck(pt){
+  const pill = $('#flowPill');
+  if (travelMode !== 'car'){ pill.classList.remove('on'); return; }
+  if (flowBusy) return;
+  if (flowAt && Date.now() - flowT < 20000 && hav(flowAt, pt) < 150) return;   // cada 20 s o cada 150 m
+  flowBusy = true; flowT = Date.now(); flowAt = pt;
+  try{
+    const d = await (await fetch(`${T}/traffic/services/4/flowSegmentData/relative0/15/json?point=${pt[0]},${pt[1]}&unit=KMPH&key=${encodeURIComponent(apiKey)}`)).json();
+    const f = d.flowSegmentData;
+    if (!f || !nav){ pill.classList.remove('on'); return; }
+    let label, color;
+    if (f.roadClosure){ label = 'Calle cortada'; color = '#7a0000'; }
+    else {
+      const ratio = f.freeFlowSpeed ? f.currentSpeed / f.freeFlowSpeed : 1;
+      if (ratio >= 0.75){ label = 'Tránsito fluido'; color = '#2ecc71'; }
+      else if (ratio >= 0.5){ label = 'Tránsito moderado'; color = '#ff9f1a'; }
+      else if (ratio >= 0.25){ label = 'Tránsito pesado'; color = '#e6261f'; }
+      else { label = 'Tránsito detenido'; color = '#7a0000'; }
+      label += ` · ${U(f.currentSpeed)} ${useMph ? 'mph' : 'km/h'}`;
+    }
+    pill.querySelector('i').style.background = color;
+    pill.querySelector('span').textContent = label;
+    pill.classList.add('on');
+  }catch{
+  }finally{ flowBusy = false; }
+}
 function stopNav(){
+  $('#flowPill').classList.remove('on'); flowAt = null;
   $('#recenter').classList.remove('on');
   if (!nav) return;
   clearInterval(nav.timer); clearInterval(nav.sim);
