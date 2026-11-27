@@ -757,24 +757,31 @@ function startGps(){
     {
       const t = Date.now();
       let v = p.coords.speed;                                   // m/s
+      const acc = p.coords.accuracy || 15;
       // guardo las posiciones de los últimos 6 segundos para calcular la velocidad yo, si el GPS no la da
       spdHist.push({lat:me.lat, lng:me.lng, t}); while (spdHist.length && t - spdHist[0].t > 6000) spdHist.shift();
       if (v == null || isNaN(v) || v < 0){
         v = null;
         const o = spdHist.find(x => t - x.t <= 5000 && t - x.t >= 1500);
-        if (o) v = hav([o.lat, o.lng], [me.lat, me.lng]) / ((t - o.t) / 1000);
+        if (o){
+          const d = hav([o.lat, o.lng], [me.lat, me.lng]);
+          // si te moviste menos que el margen de error del GPS, es ruido: estás quieto
+          v = d < Math.max(8, acc * 0.8) ? 0 : d / ((t - o.t) / 1000);
+        }
         else if (spdHist.length === 1) v = null;
       }
       if (v != null){
-        const kmh = v * 3.6;
-        mySpeed = kmh < 3 ? 0 : (mySpeed ? mySpeed * 0.4 + kmh * 0.6 : kmh);
+        let kmh = v * 3.6;
+        if (acc > 25 && kmh < 12) kmh = 0;                     // señal mala y velocidad baja: no confío
+        const thr = mySpeed > 0 ? 4 : 7;                        // para arrancar a marcar pide algo más (evita que salte quieto)
+        mySpeed = kmh < thr ? 0 : (mySpeed ? mySpeed * 0.4 + kmh * 0.6 : kmh);
         spdT = Date.now();
       }
     }
     if (h != null && !isNaN(h) && (p.coords.speed || 0) > 0.7) myHeading = h;
     else if (lastFix && hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) myHeading = bearing([lastFix.lat, lastFix.lng], [me.lat, me.lng]);
     if (!lastFix || hav([lastFix.lat, lastFix.lng], [me.lat, me.lng]) > 6) lastFix = me;
-    if (!nav){ setMe([me.lat, me.lng], myHeading); driveUpdate(); }
+    if (!nav){ setMe([me.lat, me.lng], headingNow()); driveUpdate(); }
     if (nav && !nav.sim) navUpdate(me, p.coords.heading);
     if (first){ moveTo([me.lat, me.lng], 15); first = false; if (!routes.length) setStatus('Listo. Elegí un destino.'); }
   };
@@ -1303,6 +1310,37 @@ function setMe(ll, deg){
   return dur;
 }
 let meAnim = 0, meCur = null, meRot = 0, lastSetT = 0;
+/* ---------- Brújula: sin navegar (o parado), la flecha apunta para donde apuntás el celular ---------- */
+let compassDeg = null, compassT = 0, compassOn = false;
+function onOri(e){
+  let h = e.webkitCompassHeading;                               // iPhone
+  if (h == null && e.absolute && e.alpha != null) h = 360 - e.alpha; // Android
+  if (h == null || isNaN(h)) return;
+  const so = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  compassDeg = (h + so + 360) % 360; compassT = Date.now();
+}
+function startCompass(){
+  if (compassOn) return; compassOn = true;
+  if ('ondeviceorientationabsolute' in window) addEventListener('deviceorientationabsolute', onOri);
+  addEventListener('deviceorientation', onOri);
+}
+if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function'){
+  // el iPhone pide permiso la primera vez que tocás la pantalla
+  const ask = () => {
+    DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') startCompass(); }).catch(() => {});
+    removeEventListener('touchend', ask); removeEventListener('click', ask);
+  };
+  addEventListener('touchend', ask); addEventListener('click', ask);
+} else if (window.DeviceOrientationEvent) startCompass();
+const compassActive = () => compassDeg != null && Date.now() - compassT < 2000 && !nav && mySpeed < 8;
+function headingNow(){ return compassActive() ? compassDeg : myHeading; }
+setInterval(() => {
+  if (!meMarker || !compassActive() || nav) return;
+  const d = ((compassDeg - meRot) % 360 + 540) % 360 - 180;
+  if (Math.abs(d) < 1.5) return;
+  meRot += d * 0.3;                                             // giro suave, sin temblar
+  meMarker.setRotation(meRot);
+}, 60);
 function follow(pt, deg, dur){
   map.easeTo({center:ll2(pt), zoom:17.2, pitch:50, bearing:nav && nav.headUp ? deg : map.getBearing(),
     duration:dur || 650, easing:t => t, offset:[0, Math.round(innerHeight * .18)]});
@@ -1544,7 +1582,7 @@ function stopNav(){
   wakeLock = null;
   clearRoutes();
   setStatus('Navegación terminada. Elegí otro destino.');
-  if (me){ setMe([me.lat, me.lng], myHeading); map.easeTo({center:[me.lng, me.lat], zoom:15, pitch:0, bearing:0, offset:[0, 0], duration:700}); }
+  if (me){ setMe([me.lat, me.lng], headingNow()); map.easeTo({center:[me.lng, me.lat], zoom:15, pitch:0, bearing:0, offset:[0, 0], duration:700}); }
 }
 
 function toggleSim(){
