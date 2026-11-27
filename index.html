@@ -655,12 +655,11 @@ async function buildStyle(k, night){
     return {version:8, sources:{
       base:{type:'raster', tiles:[`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
       ...traffic
-    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}, {id:'inc', type:'raster', source:'inc'}]};
+    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}]};
   }
   const trafficLayers = [
-    {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.85}},
-    {id:'inc', type:'raster', source:'inc'}
-  ];
+    {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.85}}
+  ];   // sin las flechas de incidentes de TomTom: confundían con el sentido de las calles
   try{
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 6000);
     const st = await (await fetch('https://tiles.openfreemap.org/styles/liberty', {signal:ctl.signal})).json();
@@ -671,6 +670,7 @@ async function buildStyle(k, night){
         l.layout['text-size'] = bigger(l.layout['text-size'], roads ? 1.45 : 1.15);
         if (roads) l.paint = {...(l.paint || {}), 'text-color':'#4a4d55', 'text-halo-color':'#ffffff', 'text-halo-width':2};
       }
+      if (/oneway/.test(l.id)) l.layout = {...(l.layout || {}), visibility:'none'};   // sin flechitas de mano (datos viejos)
       if (l.type === 'fill-extrusion') l.layout = {...(l.layout || {}), visibility:'none'};   // sin edificios 3D: más limpio
     }
     Object.assign(st.sources, traffic);
