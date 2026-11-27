@@ -56,7 +56,16 @@ button,input{font:inherit;color:inherit}
 #btnCfg{top:calc(72px + env(safe-area-inset-top))}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--panel);border-radius:20px 20px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px #0002;max-height:62vh;overflow:auto}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
-form.search{display:flex;gap:8px}
+.fakeSearch{width:100%;display:flex;align-items:center;gap:10px;min-height:52px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--mute);padding:0 14px;font-size:16px;cursor:pointer;text-align:left}
+.fakeSearch span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fakeSearch.has{color:var(--ink);font-weight:700}
+.searchView{position:fixed;inset:0;z-index:30;background:var(--panel);display:none;flex-direction:column;padding:calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom));overflow:auto}
+.searchView.on{display:flex}
+.searchView .sugg{border:0;background:none;margin-top:6px}
+.searchView .sugg button{border-bottom:1px solid var(--line)}
+.sv-back{flex:none;width:44px;height:48px;border:0;background:none;color:var(--ink);display:grid;place-items:center;cursor:pointer}
+.sv-clear{flex:none;min-height:48px;border:0;border-radius:12px;padding:0 14px;background:var(--line);color:var(--ink);font-weight:700;cursor:pointer}
+form.search{display:flex;gap:8px;align-items:center}
 form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--bg);padding:0 14px;font-size:16px}
 .sugg{display:grid;margin-top:8px;border-radius:14px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
 .sugg:empty{display:none}
@@ -160,13 +169,29 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
 </button>
 
+<section class="searchView" id="searchView" aria-label="Buscar destino">
+  <form class="search" id="searchForm">
+    <button class="sv-back" id="searchClose" type="button" aria-label="Volver">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <input id="dest" type="text" inputmode="search" placeholder="Escribí una dirección o un lugar" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+    <button class="sv-clear" id="searchClear" type="button">Borrar</button>
+  </form>
+  <div class="modes" id="modes2" role="tablist" aria-label="Cómo vas">
+    <button type="button" data-m="car" role="tab"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11v6.5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1V17H8v.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V11zm2.2-.5h9.6l-1-2.8H8.2l-1 2.8zM7.5 15a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm9 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>Auto</button>
+    <button type="button" data-m="pedestrian" role="tab"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="13" cy="4" r="2"/><path d="M10.5 8.5l2.6-.9a2 2 0 0 1 2.3.9l1.4 2.4 2.2 1.1-.7 1.4-2.7-1.3-.9-1.5-.8 3.4 2.1 2.3V21h-1.6v-4.1l-2.2-2.2-.9 3.4L9 21.5l-1.4-.8 2.1-3.3 1.6-6.4-1.6.6-1.1 2.6-1.5-.6 1.4-3.4z"/></svg>A pie</button>
+    <button type="button" data-m="bicycle" role="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-7h5l3 7M10 9l3 7M13 6h3"/></svg>Bici</button>
+  </div>
+  <div class="chips" id="chips2"></div>
+  <div class="sugg" id="sugg" role="listbox"></div>
+</section>
+
 <section class="sheet" id="sheet">
   <div class="grab"></div>
-  <form class="search" id="searchForm">
-    <input id="dest" type="search" placeholder="¿A dónde vas?" autocomplete="off" enterkeyhint="go">
-    <button class="btn pri" type="submit">Ir</button>
-  </form>
-  <div class="sugg" id="sugg" role="listbox"></div>
+  <button class="fakeSearch" id="openSearch" type="button">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <span id="openSearchTx">¿A dónde vas?</span>
+  </button>
   <div class="when">
     <select id="whenMode" aria-label="Cuándo salís">
       <option value="now">Salir ahora</option>
@@ -291,19 +316,35 @@ $('#cfgSave').onclick = () => {
 $('#btnCfg').onclick = openCfg;
 
 function renderChips(){
-  $('#chips').innerHTML = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('');
+  const html = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('');
+  $('#chips').innerHTML = html; $('#chips2').innerHTML = html;
 }
-$('#chips').onclick = e => {
+const chipClick = e => {
   const b = e.target.closest('.chip'); if (!b) return;
   const f = favs[+b.dataset.i];
-  if (!f.addr){ openCfg(); return; }
+  if (!f.addr){ closeSearch(); openCfg(); return; }
   $('#dest').value = f.addr;
+  closeSearch();
   route(f.addr);
 };
+$('#chips').onclick = chipClick; $('#chips2').onclick = chipClick;
+
+/* Pantalla completa para escribir el destino */
+function openSearch(){
+  $('#searchView').classList.add('on');
+  const i = $('#dest'); i.focus();                         // dentro del toque, así el iPhone abre el teclado
+  try{ i.setSelectionRange(i.value.length, i.value.length); }catch{}
+  if (i.value.trim().length >= 3) loadSugg(i.value.trim());
+}
+function closeSearch(){ $('#dest').blur(); $('#searchView').classList.remove('on'); }
+$('#openSearch').onclick = openSearch;
+$('#searchClose').onclick = closeSearch;
+$('#searchClear').onclick = () => { $('#dest').value = ''; hideSugg(); $('#dest').focus(); };
+function setSearchLabel(t){ $('#openSearchTx').textContent = t || '¿A dónde vas?'; $('#openSearch').classList.toggle('has', !!t); }
 $('#searchForm').onsubmit = e => {
   e.preventDefault();
   if (suggs.length){ pickSugg(0); return; }
-  const v = $('#dest').value.trim(); if (v) route(v);
+  const v = $('#dest').value.trim(); if (v){ closeSearch(); route(v); }
 };
 
 /* ---------- Sugerencias mientras escribís ---------- */
@@ -394,7 +435,7 @@ function pickSugg(i){
   const label = s.isPoi ? `${s.name}, ${s.addr}` : `${s.name}${s.addr ? ', ' + s.addr : ''}`;
   $('#dest').value = label;
   hideSugg();
-  $('#dest').blur();
+  closeSearch();
   route(label, s.pos);
 }
 $('#dest').addEventListener('input', () => {
@@ -806,12 +847,14 @@ function wrongWay(path){
 }
 let travelMode = 'car';
 let selMode = (() => { const v = store.get('mode', 'car'); return ['car', 'pedestrian', 'bicycle'].includes(v) ? v : 'car'; })();
-function paintModes(){ document.querySelectorAll('#modes button').forEach(b => { b.classList.toggle('on', b.dataset.m === selMode); b.setAttribute('aria-selected', b.dataset.m === selMode); }); }
-document.getElementById('modes').onclick = e => {
+function paintModes(){ document.querySelectorAll('.modes button').forEach(b => { b.classList.toggle('on', b.dataset.m === selMode); b.setAttribute('aria-selected', b.dataset.m === selMode); }); }
+const modeClick = e => {
   const b = e.target.closest('button'); if (!b || b.dataset.m === selMode) return;
   selMode = b.dataset.m; store.set('mode', selMode); paintModes();
-  if (lastDest && destPos && !nav) route(lastDest, destPos);
+  if (lastDest && destPos && !nav && !$('#searchView').classList.contains('on')) route(lastDest, destPos);
 };
+document.getElementById('modes').onclick = modeClick;
+document.getElementById('modes2').onclick = modeClick;
 paintModes();
 async function routeReq(from, to, alts, avoid, when){
   const tq = when ? `&${when.mode === 'arrive' ? 'arriveAt' : 'departAt'}=${encodeURIComponent(when.date.toISOString().slice(0, 19) + 'Z')}` : '';
@@ -858,6 +901,7 @@ async function fetchRoutes(from, to, alts, when){
 
 async function route(dest, pos, opts = {}){
   travelMode = opts.walk ? 'pedestrian' : selMode;
+  setSearchLabel(dest);
   if (!me){ setStatus('Todavía no tengo tu ubicación.'); return; }
   lastDest = dest;
   const when = getWhen();
@@ -938,7 +982,7 @@ function setRouteLines(){
   src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
     geometry:{type:'LineString', coordinates:r.path.map(ll2)}}))});
 }
-function clearRoutes(){ routes = []; setRouteLines(); setDest(null); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
+function clearRoutes(){ routes = []; setRouteLines(); setDest(null); if (!nav) setSearchLabel(''); $('#routes').innerHTML = ''; $('#go').classList.add('hidden'); }
 
 function draw(){
   setRouteLines();
