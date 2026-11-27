@@ -89,6 +89,10 @@ form.search input{flex:1;min-height:48px;border-radius:12px;border:1px solid var
 .modes svg{width:20px;height:20px}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
 .chip{flex:none;min-height:44px;border-radius:22px;border:1px solid var(--line);background:var(--bg);padding:0 16px;font-weight:700;cursor:pointer}
+.chip{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;color:var(--ink)}
+.addChip{border-style:dashed;color:var(--blue)!important;background:none}
+#favDlg .row .btn{flex:1}
+#favUseLast{width:100%;margin-top:8px}
 .status{color:var(--mute);font-size:14px;margin:10px 2px 0}
 .routes{display:grid;gap:8px;margin-top:10px}
 .route{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;text-align:left;border:2px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg);cursor:pointer}
@@ -245,6 +249,20 @@ dialog input{width:100%;min-height:44px;border-radius:10px;border:1px solid var(
   <button class="btn exit" id="navExit" type="button">Salir</button>
 </div>
 
+<dialog id="favDlg">
+  <h2 id="favDlgT">Nuevo atajo</h2>
+  <p>Ponele un nombre (por ejemplo Gimnasio o Mamá) y la dirección.</p>
+  <label for="favN">Nombre</label>
+  <input id="favN" type="text" placeholder="Ej: Gimnasio" autocomplete="off">
+  <label for="favA">Dirección</label>
+  <input id="favA" type="text" placeholder="Calle y número, o el nombre del lugar" autocomplete="off">
+  <button class="btn" id="favUseLast" type="button">Usar el último destino</button>
+  <div class="row">
+    <button class="btn" id="favDel" type="button">Borrar</button>
+    <button class="btn" id="favCancel" type="button">Cancelar</button>
+    <button class="btn pri" id="favOk" type="button">Guardar</button>
+  </div>
+</dialog>
 <dialog id="cfg">
   <h2>Ajustes</h2>
   <p>Todo se guarda solo en este celular. La clave no se sube a GitHub.</p>
@@ -320,19 +338,55 @@ $('#cfgSave').onclick = () => {
 $('#btnCfg').onclick = openCfg;
 
 function renderChips(){
-  const html = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('');
+  const html = favs.map((f, i) => `<button class="chip" data-i="${i}">${esc(f.name)}</button>`).join('')
+    + `<button class="chip addChip" data-add="1" aria-label="Nuevo atajo">＋ Nuevo</button>`;
   $('#chips').innerHTML = html; $('#chips2').innerHTML = html;
 }
 const chipClick = e => {
   const b = e.target.closest('.chip'); if (!b) return;
+  if (b.dataset.add){ openFav(-1); return; }
   const f = favs[+b.dataset.i];
-  if (!f.addr){ closeSearch(); openCfg(); return; }
+  if (!f.addr){ openFav(+b.dataset.i); return; }
   $('#dest').value = f.addr;
   addHist({name:f.addr, cat:f.name});
   closeSearch();
   route(f.addr);
 };
 $('#chips').onclick = chipClick; $('#chips2').onclick = chipClick;
+/* Crear o editar un atajo (mantené apretado un atajo para editarlo) */
+let favEdit = -1;
+function openFav(i){
+  favEdit = i;
+  const f = i >= 0 ? favs[i] : {name:'', addr:''};
+  $('#favDlgT').textContent = i >= 0 ? `Editar ${f.name}` : 'Nuevo atajo';
+  $('#favN').value = f.name; $('#favA').value = f.addr;
+  $('#favDel').style.display = i >= 0 ? '' : 'none';
+  $('#favUseLast').style.display = lastDest ? '' : 'none';
+  $('#favDlg').showModal();
+  setTimeout(() => (f.name ? $('#favA') : $('#favN')).focus(), 50);
+}
+$('#favUseLast').onclick = () => { $('#favA').value = lastDest; };
+$('#favCancel').onclick = () => $('#favDlg').close();
+$('#favDel').onclick = () => { if (favEdit >= 0){ favs.splice(favEdit, 1); store.set('favs', favs); renderChips(); } $('#favDlg').close(); };
+$('#favOk').onclick = () => {
+  const n = $('#favN').value.trim(), a = $('#favA').value.trim();
+  if (!n){ $('#favN').focus(); return; }
+  if (favEdit >= 0) favs[favEdit] = {name:n, addr:a}; else favs.push({name:n, addr:a});
+  store.set('favs', favs); renderChips(); $('#favDlg').close();
+};
+// mantener apretado (o clic derecho) un atajo para editarlo
+for (const id of ['#chips', '#chips2']){
+  let t = null, longDone = false;
+  const el = $(id);
+  el.addEventListener('pointerdown', e => {
+    const b = e.target.closest('.chip[data-i]'); if (!b) return;
+    longDone = false;
+    t = setTimeout(() => { longDone = true; openFav(+b.dataset.i); }, 600);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel', 'pointermove'].forEach(ev => el.addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementX) + Math.abs(e.movementY) > 6){ clearTimeout(t); } }));
+  el.addEventListener('click', e => { if (longDone){ e.stopImmediatePropagation(); longDone = false; } }, true);
+  el.addEventListener('contextmenu', e => { const b = e.target.closest('.chip[data-i]'); if (b){ e.preventDefault(); openFav(+b.dataset.i); } });
+}
 
 /* Pantalla completa para escribir el destino */
 function openSearch(){
