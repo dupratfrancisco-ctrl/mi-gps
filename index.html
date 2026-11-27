@@ -141,6 +141,8 @@ body.nav .navTop,body.nav .navBot{display:flex}
 body.nav #btnMe{top:calc(150px + env(safe-area-inset-top))}
 body.nav #navVoice{top:calc(208px + env(safe-area-inset-top))}
 body.nav #btnNorth{top:calc(266px + env(safe-area-inset-top))}
+.camMk{display:flex;align-items:center;gap:3px;padding:3px 7px 3px 4px;border-radius:16px;background:#7c3aed;border:2px solid #fff;color:#fff;font:800 12px system-ui;box-shadow:0 2px 8px #0006}
+.camMk svg{display:block}
 .jam{width:30px;height:30px;border-radius:50%;background:#e6261f;border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 8px #0006}
 dialog{border:0;border-radius:18px;background:var(--panel);color:var(--ink);width:min(520px,94vw);padding:18px;max-height:90vh}
 dialog::backdrop{background:#000a}
@@ -326,6 +328,7 @@ const chipClick = e => {
   const f = favs[+b.dataset.i];
   if (!f.addr){ closeSearch(); openCfg(); return; }
   $('#dest').value = f.addr;
+  addHist({name:f.addr, cat:f.name});
   closeSearch();
   route(f.addr);
 };
@@ -334,9 +337,8 @@ $('#chips').onclick = chipClick; $('#chips2').onclick = chipClick;
 /* Pantalla completa para escribir el destino */
 function openSearch(){
   $('#searchView').classList.add('on');
-  const i = $('#dest'); i.focus();                         // dentro del toque, así el iPhone abre el teclado
-  try{ i.setSelectionRange(i.value.length, i.value.length); }catch{}
-  if (i.value.trim().length >= 3) loadSugg(i.value.trim()); else showHist();
+  const i = $('#dest'); i.value = ''; suggSeq++; i.focus();   // dentro del toque, así el iPhone abre el teclado
+  showHist();                                                  // arranca vacío con tus últimas búsquedas
 }
 function closeSearch(){ $('#dest').blur(); $('#searchView').classList.remove('on'); }
 $('#openSearch').onclick = openSearch;
@@ -630,6 +632,11 @@ function addAppLayers(){
     map.addSource('rtraffic', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-traffic', type:'line', source:'rtraffic',
       layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':['get', 'c'], 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+    map.addSource('rcams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({id:'route-cam-glow', type:'line', source:'rcams',
+      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 12, 17, 22]}});
+    map.addLayer({id:'route-cam', type:'line', source:'rcams',
+      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 7], 'line-dasharray':[1.2, .8]}});
     map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
@@ -965,6 +972,35 @@ function setDest(pos){
   destMarker = new maplibregl.Marker({element:el, anchor:'center'}).setLngLat([pos.lng, pos.lat]).addTo(map);
 }
 let jamMarkers = [];
+/* Zona de cada radar sobre la ruta (como Waze): unos 250 m antes de la cámara hasta pasarla */
+const CAM_ZONE = 250;
+let routeCamMarkers = [];
+function subPath(r, s0, s1){
+  const out = [ll2(posAt(r, s0))];
+  for (let i = 0; i < r.path.length; i++) if (r.cum[i] > s0 && r.cum[i] < s1) out.push(ll2(r.path[i]));
+  out.push(ll2(posAt(r, s1)));
+  return out;
+}
+const CAM_IC = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"><path d="M3 8h11v8H3zM14 11l6-3v8l-6-3"/></svg>';
+function setCamZones(r, from = 0){
+  const src = map && map.getSource('rcams'); if (!src) return;
+  const total = r ? r.cum[r.cum.length - 1] : 0;
+  const cams = (r && travelMode === 'car' ? r.cams || [] : []).filter(c => c.along + 20 > from);
+  src.setData({type:'FeatureCollection', features:cams.map(c => {
+    const a = Math.max(from, c.along - CAM_ZONE, 0), b = Math.min(total, c.along + 20);
+    return {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:subPath(r, a, b)}};
+  }).filter(f => f.geometry.coordinates.length > 1)});
+  const key = cams.map(c => c.along).join(',');
+  if (key === setCamZones.key) return;
+  setCamZones.key = key;
+  routeCamMarkers.forEach(m => m.remove()); routeCamMarkers = [];
+  for (const c of cams){
+    const el = document.createElement('div'); el.className = 'camMk';
+    el.title = 'Radar' + (c.max ? ` · ${c.max} km/h` : '');
+    el.innerHTML = CAM_IC + (c.max ? `<span>${c.max}</span>` : '');
+    routeCamMarkers.push(new maplibregl.Marker({element:el}).setLngLat(ll2(c.pt)).addTo(map));
+  }
+}
 const jamCol = j => j.cat === 'ROAD_CLOSURE' ? '#7a0000' : j.m >= 4 ? '#7a0000' : j.m === 3 ? '#e6261f' : j.m === 2 ? '#ff7a1a' : '#ffb02e';
 function trafficData(r, from, at){
   const feats = [];
@@ -1002,9 +1038,11 @@ function setProgress(r, i, at){
   main.setData({type:'FeatureCollection', features:[{type:'Feature', properties:{sel:true, i:0},
     geometry:{type:'LineString', coordinates:[p, ...r.path.slice(i + 1).map(ll2)]}}]});
   const tr = map.getSource('rtraffic'); if (tr) tr.setData(trafficData(r, i, at));
+  setCamZones(r, locate(r, [at.lat, at.lng], i).along);
 }
 function setRouteLines(){
   setTrafficOnRoute(routes[sel]);
+  setCamZones(routes[sel], 0);
   const dn = map && map.getSource('rdone'); if (dn) dn.setData({type:'FeatureCollection', features:[]});
   const src = map && map.getSource('routes'); if (!src) return;
   src.setData({type:'FeatureCollection', features:routes.map((r, i) => ({type:'Feature', properties:{sel:i === sel, i},
@@ -1124,6 +1162,7 @@ function matchCams(r){
   cams.sort((a, b) => a.along - b.along);
   r.cams = cams;
   window.__routeCams = cams.length;
+  if (nav ? nav.r === r : routes[sel] === r) setCamZones(r, nav ? (nav.progAt || 0) : 0);
 }
 function bearing(a, b){
   const k = Math.PI / 180, y = Math.sin((b[1]-a[1])*k) * Math.cos(b[0]*k);
