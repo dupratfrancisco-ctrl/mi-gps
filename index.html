@@ -654,8 +654,9 @@ async function buildStyle(k, night){
     // de noche: mapa oscuro
     return {version:8, sources:{
       base:{type:'raster', tiles:[`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
-      ...traffic
-    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}]};
+      ...traffic,
+      labels:{type:'raster', tiles:[`${T}/map/1/tile/labels/night/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22}
+    }, layers:[{id:'base', type:'raster', source:'base'}, {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.9}}, {id:'labels', type:'raster', source:'labels'}]};
   }
   const trafficLayers = [
     {id:'flow', type:'raster', source:'flow', paint:{'raster-opacity':.85}}
@@ -681,8 +682,9 @@ async function buildStyle(k, night){
     // si no carga el mapa de OpenStreetMap, uso el de TomTom
     return {version:8, sources:{
       base:{type:'raster', tiles:[`${T}/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22, attribution:'© TomTom'},
-      ...traffic
-    }, layers:[{id:'base', type:'raster', source:'base'}, ...trafficLayers]};
+      ...traffic,
+      labels:{type:'raster', tiles:[`${T}/map/1/tile/labels/main/{z}/{x}/{y}.png?key=${k}&language=es-ES`], tileSize:256, maxzoom:22}
+    }, layers:[{id:'base', type:'raster', source:'base'}, ...trafficLayers, {id:'labels', type:'raster', source:'labels'}]};
   }
 }
 async function initMap(){
@@ -715,27 +717,29 @@ async function initMap(){
 }
 function addAppLayers(){
   if (map.getSource('routes')) return;
+  // orden: la flecha arriba de todo, después los nombres de calles y abajo los colores de la ruta y el tránsito
+  const before = (map.getStyle().layers.find(l => l.type === 'symbol') || map.getLayer('labels') || {}).id;
     map.addSource('routes', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-alt', type:'line', source:'routes', filter:['==', ['get', 'sel'], false],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#9aa8bd', 'line-width':7, 'line-opacity':.85}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#9aa8bd', 'line-width':7, 'line-opacity':.85}}, before);
     map.addSource('rdone', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-done', type:'line', source:'rdone',
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#6b7280', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#6b7280', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}}, before);
     map.addLayer({id:'route-casing', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#1d2433', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 9, 17, 16]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#1d2433', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 9, 17, 16]}}, before);
     map.addLayer({id:'route-main', type:'line', source:'routes', filter:['==', ['get', 'sel'], true],
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#22c55e', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':'#22c55e', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}}, before);
     map.addSource('rtraffic', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-traffic', type:'line', source:'rtraffic',
-      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':['get', 'c'], 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}});
+      layout:{'line-cap':'round', 'line-join':'round'}, paint:{'line-color':['get', 'c'], 'line-width':['interpolate', ['linear'], ['zoom'], 12, 6, 17, 11]}}, before);
     map.addSource('rcams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'route-cam-glow', type:'line', source:'rcams',
-      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 12, 17, 22]}});
+      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-opacity':.35, 'line-width':['interpolate', ['linear'], ['zoom'], 12, 12, 17, 22]}}, before);
     map.addLayer({id:'route-cam', type:'line', source:'rcams',
-      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 7], 'line-dasharray':[1.2, .8]}});
+      layout:{'line-cap':'butt', 'line-join':'round'}, paint:{'line-color':'#7c3aed', 'line-width':['interpolate', ['linear'], ['zoom'], 12, 4, 17, 7], 'line-dasharray':[1.2, .8]}}, before);
     map.addSource('camzone', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
-    map.addLayer({id:'camzone-fill', type:'fill', source:'camzone', minzoom:12, paint:{'fill-color':'#7c3aed', 'fill-opacity':.18}});
-    map.addLayer({id:'camzone-line', type:'line', source:'camzone', minzoom:12, paint:{'line-color':'#7c3aed', 'line-width':2, 'line-opacity':.9}});
+    map.addLayer({id:'camzone-fill', type:'fill', source:'camzone', minzoom:12, paint:{'fill-color':'#7c3aed', 'fill-opacity':.18}}, before);
+    map.addLayer({id:'camzone-line', type:'line', source:'camzone', minzoom:12, paint:{'line-color':'#7c3aed', 'line-width':2, 'line-opacity':.9}}, before);
     map.addSource('cams', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({id:'cams', type:'circle', source:'cams', minzoom:9,
       paint:{'circle-radius':['interpolate', ['linear'], ['zoom'], 9, 3, 13, 6, 16, 11], 'circle-color':'#e6261f', 'circle-stroke-color':'#fff', 'circle-stroke-width':2}});
