@@ -5,12 +5,16 @@ import Foundation
 final class LiveActivityManager {
     static let shared = LiveActivityManager()
     private var activity: Activity<NavAttributes>?
+    /// true mientras hay una navegación en curso
+    private(set) var isNavigating = false
 
     func handle(type: String, body: [String: Any]) {
         switch type {
         case "navStart":
+            isNavigating = true
             start(destination: body["dest"] as? String ?? "Destino", state: state(from: body))
         case "navUpdate":
+            isNavigating = true
             if activity == nil {
                 start(destination: body["dest"] as? String ?? "Destino", state: state(from: body))
             } else {
@@ -61,6 +65,7 @@ final class LiveActivityManager {
 
     /// Cierra todas las Actividades en vivo de la app
     func endAll() {
+        isNavigating = false
         for a in Activity<NavAttributes>.activities {
             Task { await a.end(nil, dismissalPolicy: .immediate) }
         }
@@ -69,6 +74,7 @@ final class LiveActivityManager {
 
     /// Igual que endAll, pero espera a que termine (se usa justo antes de que se cierre la app)
     func endAllAndWait() {
+        isNavigating = false
         let semaphore = DispatchSemaphore(value: 0)
         Task.detached {
             for a in Activity<NavAttributes>.activities {
