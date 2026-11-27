@@ -1038,7 +1038,7 @@ function setProgress(r, i, at){
   main.setData({type:'FeatureCollection', features:[{type:'Feature', properties:{sel:true, i:0},
     geometry:{type:'LineString', coordinates:[p, ...r.path.slice(i + 1).map(ll2)]}}]});
   const tr = map.getSource('rtraffic'); if (tr) tr.setData(trafficData(r, i, at));
-  setCamZones(r, locate(r, [at.lat, at.lng], i).along);
+  setCamZones(r, locate(r, at, i).along);
 }
 function setRouteLines(){
   setTrafficOnRoute(routes[sel]);
